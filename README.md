@@ -1,5 +1,7 @@
 # Mooncell 离线资料库
 
+GitHub 使用 `offline-data/` 中的压缩分卷同步完整数据。首次克隆后，在根目录执行 `python restore_data.py`，校验并恢复 `data/`，随后即可离线查询。若已有文件与快照不同，恢复脚本会停止，需先备份已有数据。
+
 已按英灵图鉴、礼装图鉴、指令纹章图鉴采集公开数据，供本地 App 查询。
 
 - `data/mooncell.sqlite3`：`catalog` 表存三类索引，`pages` 表存详情 Wikitext、修订号、时间和来源链接。

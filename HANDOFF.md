@@ -11,7 +11,7 @@
 ## 使用
 
 Python 3.11，脚本仅使用标准库，无需安装第三方依赖。
-SQLite 与 JSON 快照随仓库同步，离线查询无需重新采集。
+SQLite 与 JSON 快照以 offline-data/ 压缩分卷随仓库同步，先执行 python restore_data.py 恢复，离线查询无需重新采集。
 
 ```sh
 python -X utf8 mooncell_offline.py --db data/mooncell.sqlite3 search 阿尔托莉雅

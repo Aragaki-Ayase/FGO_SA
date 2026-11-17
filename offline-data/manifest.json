@@ -1,0 +1,73 @@
+{
+  "sha256": "88b9d738cfc19788254005b7bc067aa839bc35ee9ee0ff9d0237ab15073432e9",
+  "parts": [
+    {
+      "name": "part-000",
+      "sha256": "f1b4949bb9939575b14bf5b9e2e7e68bceb3b15d44a20ceaf238b2d156fefc58"
+    },
+    {
+      "name": "part-001",
+      "sha256": "4a09cc406b4ec128bde4e58e0b10431683d01f51e2daa3b1c07c92e39149aa7e"
+    },
+    {
+      "name": "part-002",
+      "sha256": "5c04dacd29d2a6ddb48cf1927eb4975f9e3d4ad5957c4b6ae2727999786c2a6f"
+    },
+    {
+      "name": "part-003",
+      "sha256": "8df41cad53917a366554d4d3025231f3e7d50cae55430d5a4ec8ed8698e2c619"
+    },
+    {
+      "name": "part-004",
+      "sha256": "165e9fc6f7d90de64dea2059c404f342d07521a562182b419eacd77d379f79a4"
+    },
+    {
+      "name": "part-005",
+      "sha256": "0e285c804e6397d3f6918319bf2be3e0072b825628350cf2f178aa5b15dc2d96"
+    },
+    {
+      "name": "part-006",
+      "sha256": "28ebd088ddb620a58e5bb8e77e32ee355d51b5e2d69dc638eaa14e761a3abbe6"
+    },
+    {
+      "name": "part-007",
+      "sha256": "5b8c539ffff15c01550d795dd4909a3193e186361b3ca965ac3229f40fa19b7a"
+    },
+    {
+      "name": "part-008",
+      "sha256": "3b5d0b09562bfc2763365766bfe3f7dcac02f42c9f9448e83110be164e7da4f8"
+    },
+    {
+      "name": "part-009",
+      "sha256": "be61b422dfd9ffabe08411090e48456cf876f5c097527df4726d6bdba99a768c"
+    },
+    {
+      "name": "part-010",
+      "sha256": "6c30766ae02d99e6962451f1a9b1dba14a53c52470029e82ca1a589fe4bab5fb"
+    },
+    {
+      "name": "part-011",
+      "sha256": "bd572f93285fadfddbaacbd3068ce93650d8f7c1d060ce4bfa6d81d14ef7bcd1"
+    },
+    {
+      "name": "part-012",
+      "sha256": "74374cb15683f58612136854579fc9dd0a3870cf1505bc52bd2ca2541adfd03d"
+    },
+    {
+      "name": "part-013",
+      "sha256": "79ac43b74d08acf01bee8d82c0944f6a17b401bc0b43a2ca8dfeae1e09ab0f8e"
+    },
+    {
+      "name": "part-014",
+      "sha256": "af36791e3203fd021acdb5248ca84e21503736f4ecd78e95f747ba2f5919005a"
+    },
+    {
+      "name": "part-015",
+      "sha256": "befa0d905d7a1950a49eb9203004fa0cab6668030b9d76911f711395ecb75be6"
+    },
+    {
+      "name": "part-016",
+      "sha256": "66f498aee222a27ac98c610cf1130f5956dfea2b3dbf3f7cb740863c0afc7e8a"
+    }
+  ]
+}
