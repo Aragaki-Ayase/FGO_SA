@@ -1,0 +1,44 @@
+{
+  "batchcomplete": true,
+  "query": {
+    "pages": [
+      {
+        "ns": 0,
+        "title": "概念礼装图鉴",
+        "missing": true
+      },
+      {
+        "pageid": 36,
+        "ns": 0,
+        "title": "英灵图鉴",
+        "revisions": [
+          {
+            "slots": {
+              "main": {
+                "contentmodel": "wikitext",
+                "contentformat": "text/x-wiki",
+                "content": "__NOTOC__{{#if:{{:MediaWiki:Sitenotice main}}||{{Ads/normal}}}}{{Ads/mobile}}\n<div class=\"nomobile\">\n{{shortcut|SVT}}\n</div>\n<!-- 需要修改请前往 英灵图鉴/数据 页面 -->\n{{英灵图鉴}}\n<div style=\"margin-top:48px;\">{{#if:{{:MediaWiki:Sitenotice main}}|{{Ads/normal}}|}}{{Ads/mobile2}}</div>\n<!-- 下方代码为网站对搜索引擎做出的SEO优化，不影响显示效果，请勿删除 -->\n{{#seo:\n|title={{PAGENAME}} - Mooncell - 玩家共同构筑的FGO中文Wiki\n|titlemode=append\n|keywords=Mooncell,fgo,fate,命运－冠位指定,Fate Grand Order,fgowiki,型月,礼装,图鉴,英灵,素材,攻略,翻译,一览\n|description=Mooncell是一个非营利性质的FGO资料Wiki网站\n}}"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "pageid": 22990,
+        "ns": 0,
+        "title": "指令纹章图鉴",
+        "revisions": [
+          {
+            "slots": {
+              "main": {
+                "contentmodel": "wikitext",
+                "contentformat": "text/x-wiki",
+                "content": "__NOTOC__{{#if:{{:MediaWiki:Sitenotice main}}||{{Ads|normal}}}}{{Ads/mobile}}\n<div class=\"nomobile\">\n{{shortcut|CC}}\n</div>\n<!--\n需要修改请前往 指令纹章图鉴/数据 页面\n-->\n{{纹章图鉴}}\n<div style=\"margin-top:48px;\">{{#if:{{:MediaWiki:Sitenotice main}}|{{Ads/normal}}|}}{{Ads/mobile2}}</div>\n<!-- 下方代码为网站对搜索引擎做出的SEO优化，不影响显示效果，请勿删除 -->\n{{#seo:\n|title={{PAGENAME}} - Mooncell - 玩家共同构筑的FGO中文Wiki\n|titlemode=append\n|keywords=Mooncell,fgo,fate,命运－冠位指定,Fate Grand Order,fgowiki,型月,礼装,图鉴,英灵,素材,攻略,翻译,一览\n|description=Mooncell是一个非营利性质的FGO资料Wiki网站\n}}"
+              }
+            }
+          }
+        ]
+      }
+    ]
+  }
+}
