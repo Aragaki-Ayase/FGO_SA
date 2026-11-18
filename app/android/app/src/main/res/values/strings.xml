@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Mooncell图鉴</string>
+    <string name="title_activity_main">Mooncell图鉴</string>
+    <string name="package_name">wiki.fgo.mooncell.offline</string>
+    <string name="custom_url_scheme">wiki.fgo.mooncell.offline</string>
+</resources>

@@ -1,0 +1,8 @@
+{
+  "appId": "wiki.fgo.mooncell.offline",
+  "appName": "Mooncell图鉴",
+  "webDir": "dist",
+  "server": {
+    "androidScheme": "https"
+  }
+}

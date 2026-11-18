@@ -5,3 +5,12 @@ __pycache__/
 *.sqlite3-shm
 *.sqlite3-journal
 .env
+app/node_modules/
+app/dist/
+app/public/assets/
+app/public/data/
+app/android/app/src/main/assets/public/
+app/android/.gradle/
+app/android/build/
+app/android/app/build/
+data/image_manifest.json
