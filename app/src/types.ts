@@ -113,6 +113,7 @@ export interface BondCeRef {
   iconLocal: string;
   iconRemote: string;
   des: string;
+  introCn?: string;
 }
 
 export interface ProfileSection {
@@ -192,6 +193,7 @@ export interface ServantDetail extends ServantSummary {
     skill: MaterialStage[];
     appendSkill: MaterialStage[];
   };
+  bondPoints?: number[];
   bondCe: BondCeRef | null;
   profile: ProfileSection[];
   voices: VoiceSection[];
@@ -209,11 +211,13 @@ export interface CraftEssenceSummary {
   rarity: number;
   category: string;
   type: string;
+  statType?: string;
   cost: string;
   hp: string;
   atk: string;
   des: string;
   desMax: string;
+  effectTags?: string[];
   iconLocal: string;
   iconRemote: string;
   skillIconLocal: string;
@@ -238,8 +242,17 @@ export interface CatalogSummaryPayload {
     craftEssence: number;
   };
   traitGroups: TraitGroup[];
+  ceEffectGroups?: { group: string; tags: string[] }[];
   servants: ServantSummary[];
   craftEssences: CraftEssenceSummary[];
+}
+
+export interface CeFilterState {
+  rarities: number[];
+  categories: string[];
+  statTypes: string[];
+  effectTags: string[];
+  tagMatchMode: 'AND' | 'OR';
 }
 
 export interface ServantFilterState {

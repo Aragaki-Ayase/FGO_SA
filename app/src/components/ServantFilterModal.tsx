@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
-import { X, RotateCcw, Search, Filter } from 'lucide-react';
-import { ServantFilterState, TraitGroup } from '../types';
+import React, { useState, useMemo } from 'react';
+import { X, RotateCcw, Search, Filter, CheckSquare, Users } from 'lucide-react';
+import { ServantFilterState, ServantSummary, TraitGroup } from '../types';
 import { SmartImage } from './SmartImage';
+import { useBackClose } from '../utils/backNavigation';
 
 interface ServantFilterModalProps {
   open: boolean;
@@ -10,7 +11,8 @@ interface ServantFilterModalProps {
   onChange: (next: ServantFilterState) => void;
   onReset: () => void;
   traitGroups: TraitGroup[];
-  matchedCount: number;
+  matchedServants: ServantSummary[];
+  onSelectServant: (id: number) => void;
 }
 
 const RARITY_OPTIONS = [
@@ -86,13 +88,36 @@ export const ServantFilterModal: React.FC<ServantFilterModalProps> = ({
   onChange,
   onReset,
   traitGroups,
-  matchedCount,
+  matchedServants,
+  onSelectServant,
 }) => {
   const [traitSearch, setTraitSearch] = useState('');
 
+  useBackClose(open, onClose);
+
+  // Split by space (half-width or full-width) to support simultaneous multi-keyword trait search
+  const searchTokens = useMemo(
+    () =>
+      traitSearch
+        .trim()
+        .toLowerCase()
+        .split(/[\s,，、]+/)
+        .filter(Boolean),
+    [traitSearch]
+  );
+
+  // Exact or partial matched traits across all groups for current tokens
+  const searchedTraitList = useMemo(() => {
+    if (searchTokens.length === 0) return [];
+    const allTraits = Array.from(new Set(traitGroups.flatMap((g) => g.traits)));
+    return allTraits.filter((t) =>
+      searchTokens.some((tok) => t.toLowerCase().includes(tok))
+    );
+  }, [traitGroups, searchTokens]);
+
   if (!open) return null;
 
-  const q = traitSearch.trim().toLowerCase();
+  const matchedCount = matchedServants.length;
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
@@ -306,8 +331,8 @@ export const ServantFilterModal: React.FC<ServantFilterModalProps> = ({
             </div>
           </section>
 
-          {/* 6. 特性分类（同类特性归到一起） */}
-          <section className="filter-section">
+          {/* 6. 特性分类（支持空格分隔多特性搜索 + 实时展示符合从者） */}
+          <section className="filter-section" style={{ borderBottom: 'none', marginBottom: 4 }}>
             <div className="filter-sec-header">
               <h4>特性分类（已选 {filters.traits.length} 项）</h4>
               <div className="trait-mode-toggle">
@@ -343,22 +368,58 @@ export const ServantFilterModal: React.FC<ServantFilterModalProps> = ({
               <Search size={15} />
               <input
                 type="text"
-                placeholder="快速检索特性（如：神性、龙、圆桌、人科、善...）"
+                placeholder="输入多个特性用空格隔开（如：神性 龙 善）..."
                 value={traitSearch}
                 onChange={(e) => setTraitSearch(e.target.value)}
               />
+              {searchedTraitList.length > 0 && (
+                <button
+                  type="button"
+                  className="trait-select-matches-btn"
+                  onClick={() => {
+                    const merged = Array.from(new Set([...filters.traits, ...searchedTraitList]));
+                    onChange({ ...filters, traits: merged });
+                  }}
+                  title="一键选中当前搜索匹配到的全部特性"
+                >
+                  <CheckSquare size={13} />
+                  <span>全选匹配({searchedTraitList.length})</span>
+                </button>
+              )}
               {traitSearch && (
-                <button type="button" onClick={() => setTraitSearch('')}>
+                <button type="button" onClick={() => setTraitSearch('')} aria-label="清空搜索">
                   <X size={14} />
                 </button>
               )}
             </div>
 
+            {filters.traits.length > 0 && (
+              <div className="selected-traits-strip">
+                <span className="strip-label">当前已选特性：</span>
+                {filters.traits.map((t) => (
+                  <button
+                    key={t}
+                    type="button"
+                    className="selected-trait-tag"
+                    onClick={() =>
+                      onChange({ ...filters, traits: filters.traits.filter((x) => x !== t) })
+                    }
+                  >
+                    <span>{t}</span>
+                    <X size={12} />
+                  </button>
+                ))}
+              </div>
+            )}
+
             <div className="trait-groups-container">
               {traitGroups.map((grp) => {
-                const visibleTraits = q
-                  ? grp.traits.filter((t) => t.toLowerCase().includes(q))
-                  : grp.traits;
+                const visibleTraits =
+                  searchTokens.length > 0
+                    ? grp.traits.filter((t) =>
+                        searchTokens.some((tok) => t.toLowerCase().includes(tok))
+                      )
+                    : grp.traits;
                 if (visibleTraits.length === 0) return null;
                 return (
                   <div key={grp.group} className="trait-group-card">
@@ -384,12 +445,50 @@ export const ServantFilterModal: React.FC<ServantFilterModalProps> = ({
                 );
               })}
             </div>
+
+            {/* 实时预览符合当前所选特性的所有从者 */}
+            <div className="trait-live-preview-box">
+              <div className="trait-live-preview-header">
+                <Users size={15} />
+                <span>
+                  符合当前筛选条件的从者（共 <strong>{matchedCount}</strong> 骑，点击头像可直接查看）
+                </span>
+              </div>
+              {matchedCount === 0 ? (
+                <div className="trait-live-empty">暂无同时满足以上全部条件的从者</div>
+              ) : (
+                <div className="trait-live-grid">
+                  {matchedServants.map((svt) => (
+                    <button
+                      key={svt.id}
+                      type="button"
+                      className="trait-live-svt-card"
+                      onClick={() => {
+                        onClose();
+                        onSelectServant(svt.id);
+                      }}
+                    >
+                      <div className="trait-live-avatar-wrap">
+                        <SmartImage
+                          localSrc={svt.iconLocal}
+                          remoteSrc={svt.iconRemote}
+                          alt={svt.nameCn}
+                          className="trait-live-avatar"
+                        />
+                        <span className="trait-live-no">#{svt.id}</span>
+                      </div>
+                      <span className="trait-live-name">{svt.nameCn}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           </section>
         </div>
 
         <div className="filter-drawer-footer">
           <button type="button" className="btn-primary-full" onClick={onClose}>
-            查看筛选结果（共 {matchedCount} 骑英灵）
+            完成筛选并返回列表（共 {matchedCount} 骑英灵）
           </button>
         </div>
       </div>

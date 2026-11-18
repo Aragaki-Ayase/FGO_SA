@@ -15,6 +15,7 @@ import {
 import {
   CatalogSummaryPayload,
   ServantFilterState,
+  CeFilterState,
   ServantDetail,
   CraftEssenceDetail,
 } from './types';
@@ -27,6 +28,7 @@ import {
 } from './services/dataService';
 import { SmartImage } from './components/SmartImage';
 import { ServantFilterModal } from './components/ServantFilterModal';
+import { CeFilterModal } from './components/CeFilterModal';
 import { ServantDetailModal } from './components/ServantDetailModal';
 import { CeDetailModal } from './components/CeDetailModal';
 
@@ -39,6 +41,14 @@ const INITIAL_SERVANT_FILTERS: ServantFilterState = {
   methods: [],
   traits: [],
   traitMatchMode: 'AND',
+};
+
+const INITIAL_CE_FILTERS: CeFilterState = {
+  rarities: [],
+  categories: [],
+  statTypes: [],
+  effectTags: [],
+  tagMatchMode: 'AND',
 };
 
 const QUICK_CLASSES = [
@@ -69,6 +79,20 @@ const CE_CATEGORIES = [
   '魔力棱镜兑换概念礼装',
 ];
 
+const QUICK_CE_TAGS = [
+  '初始NP',
+  'Buster性能提升',
+  'Arts性能提升',
+  'Quick性能提升',
+  '宝具威力提升',
+  '暴击威力提升',
+  'NP获得量提升',
+  '每回合获得暴击星',
+  '无敌贯通',
+  '牵绊点数加成',
+  'QP获得量加成',
+];
+
 export const App: React.FC = () => {
   const [catalog, setCatalog] = useState<CatalogSummaryPayload | null>(null);
   const [initError, setInitError] = useState<string>('');
@@ -84,8 +108,8 @@ export const App: React.FC = () => {
   const [filterModalOpen, setFilterModalOpen] = useState(false);
 
   // CE Filters
-  const [ceRarityFilter, setCeRarityFilter] = useState<number | null>(null);
-  const [ceCategoryFilter, setCeCategoryFilter] = useState<string>('全部');
+  const [ceFilters, setCeFilters] = useState<CeFilterState>(INITIAL_CE_FILTERS);
+  const [ceFilterModalOpen, setCeFilterModalOpen] = useState(false);
 
   // Infinite scroll pagination
   const [visibleLimit, setVisibleLimit] = useState(96);
@@ -110,7 +134,7 @@ export const App: React.FC = () => {
   // Reset pagination when filters/tab/search change
   useEffect(() => {
     setVisibleLimit(96);
-  }, [mainTab, searchQuery, sortBy, svtFilters, ceRarityFilter, ceCategoryFilter]);
+  }, [mainTab, searchQuery, sortBy, svtFilters, ceFilters]);
 
   // Filtered & sorted Servants
   const filteredServants = useMemo(() => {
@@ -184,14 +208,29 @@ export const App: React.FC = () => {
           c.nameCn.toLowerCase().includes(q) ||
           c.nameJp.toLowerCase().includes(q) ||
           c.aliases.toLowerCase().includes(q) ||
-          c.des.toLowerCase().includes(q);
+          c.des.toLowerCase().includes(q) ||
+          (c.effectTags || []).some((t) => t.toLowerCase().includes(q));
         if (!matchId && !matchText) return false;
       }
-      if (ceRarityFilter !== null && c.rarity !== ceRarityFilter) {
+      if (ceFilters.rarities.length > 0 && !ceFilters.rarities.includes(c.rarity)) {
         return false;
       }
-      if (ceCategoryFilter !== '全部' && c.category !== ceCategoryFilter) {
+      if (ceFilters.categories.length > 0 && !ceFilters.categories.includes(c.category)) {
         return false;
+      }
+      if (
+        ceFilters.statTypes.length > 0 &&
+        (!c.statType || !ceFilters.statTypes.includes(c.statType))
+      ) {
+        return false;
+      }
+      if (ceFilters.effectTags.length > 0) {
+        const cTags = c.effectTags || [];
+        if (ceFilters.tagMatchMode === 'AND') {
+          if (!ceFilters.effectTags.every((t) => cTags.includes(t))) return false;
+        } else {
+          if (!ceFilters.effectTags.some((t) => cTags.includes(t))) return false;
+        }
       }
       return true;
     });
@@ -201,7 +240,7 @@ export const App: React.FC = () => {
       if (sortBy === 'rarity_desc') return b.rarity - a.rarity || b.id - a.id;
       return b.id - a.id;
     });
-  }, [catalog, searchQuery, ceRarityFilter, ceCategoryFilter, sortBy]);
+  }, [catalog, searchQuery, ceFilters, sortBy]);
 
   // IntersectionObserver for smooth infinite scroll
   useEffect(() => {
@@ -222,7 +261,7 @@ export const App: React.FC = () => {
     return () => obs.disconnect();
   }, [visibleLimit, mainTab, filteredServants.length, filteredCes.length]);
 
-  const activeFilterCount =
+  const activeSvtFilterCount =
     svtFilters.rarities.length +
     svtFilters.classes.length +
     svtFilters.npColors.length +
@@ -230,6 +269,12 @@ export const App: React.FC = () => {
     svtFilters.npKinds.length +
     svtFilters.methods.length +
     svtFilters.traits.length;
+
+  const activeCeFilterCount =
+    ceFilters.rarities.length +
+    ceFilters.categories.length +
+    ceFilters.statTypes.length +
+    ceFilters.effectTags.length;
 
   const handleOpenServant = async (id: number) => {
     setSvtLoading(true);
@@ -384,7 +429,7 @@ export const App: React.FC = () => {
             placeholder={
               mainTab === 'servant'
                 ? '搜索英灵名称 / 外号(如:呆毛、水千利休) / 日文 / 编号...'
-                : '搜索概念礼装名称 / 技能效果(如:充能、暴击、无敌贯通) / 编号...'
+                : '搜索概念礼装名称 / 效果标签(如:初始NP、Buster、暴击) / 编号...'
             }
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
@@ -402,16 +447,28 @@ export const App: React.FC = () => {
         </div>
 
         <div className="toolbar-right-btns">
-          {mainTab === 'servant' && (
+          {mainTab === 'servant' ? (
             <button
               type="button"
-              className={`btn-toolbar ${activeFilterCount > 0 ? 'active' : ''}`}
+              className={`btn-toolbar ${activeSvtFilterCount > 0 ? 'active' : ''}`}
               onClick={() => setFilterModalOpen(true)}
             >
               <Filter size={16} />
               <span>筛选</span>
-              {activeFilterCount > 0 && (
-                <span className="filter-count-pill">{activeFilterCount}</span>
+              {activeSvtFilterCount > 0 && (
+                <span className="filter-count-pill">{activeSvtFilterCount}</span>
+              )}
+            </button>
+          ) : (
+            <button
+              type="button"
+              className={`btn-toolbar ${activeCeFilterCount > 0 ? 'active' : ''}`}
+              onClick={() => setCeFilterModalOpen(true)}
+            >
+              <Filter size={16} />
+              <span>礼装筛选</span>
+              {activeCeFilterCount > 0 && (
+                <span className="filter-count-pill">{activeCeFilterCount}</span>
               )}
             </button>
           )}
@@ -442,7 +499,7 @@ export const App: React.FC = () => {
         </div>
       </div>
 
-      {/* Sub-bar: Quick Class Switcher (Servant Tab) or Quick Category Bar (CE Tab) */}
+      {/* Sub-bar: Quick Class Switcher (Servant Tab) or Quick Category/Tag Bar (CE Tab) */}
       {mainTab === 'servant' ? (
         <div className="quick-bar-wrap">
           <div className="quick-class-scroll">
@@ -478,8 +535,7 @@ export const App: React.FC = () => {
             })}
           </div>
 
-          {/* Active filter pills bar */}
-          {activeFilterCount > 0 && (
+          {activeSvtFilterCount > 0 && (
             <div className="active-filters-bar">
               <span className="af-label">已选条件 ({filteredServants.length}骑)：</span>
               {svtFilters.rarities.map((r) => (
@@ -594,33 +650,164 @@ export const App: React.FC = () => {
         <div className="quick-bar-wrap">
           <div className="ce-filter-row">
             <div className="ce-pills-scroll">
-              {CE_CATEGORIES.map((cat) => (
-                <button
-                  key={cat}
-                  type="button"
-                  className={`filter-chip filter-chip-sm ${
-                    ceCategoryFilter === cat ? 'active' : ''
-                  }`}
-                  onClick={() => setCeCategoryFilter(cat)}
-                >
-                  {cat}
-                </button>
-              ))}
+              <button
+                type="button"
+                className={`filter-chip filter-chip-sm ${
+                  activeCeFilterCount > 0 ? 'active' : ''
+                }`}
+                style={{
+                  borderColor: '#2563eb',
+                  color: activeCeFilterCount > 0 ? '#ffffff' : '#1d4ed8',
+                  background: activeCeFilterCount > 0 ? '#2563eb' : '#eff6ff',
+                  fontWeight: 800,
+                }}
+                onClick={() => setCeFilterModalOpen(true)}
+              >
+                <Filter size={13} />
+                <span>全部筛选(星级/标签/种类)</span>
+              </button>
               <span className="divider-v" />
-              {[5, 4, 3, 2, 1].map((star) => (
-                <button
-                  key={star}
-                  type="button"
-                  className={`filter-chip filter-chip-sm ${
-                    ceRarityFilter === star ? 'active rarity-chip' : ''
-                  }`}
-                  onClick={() => setCeRarityFilter((prev) => (prev === star ? null : star))}
-                >
-                  {star}★
-                </button>
-              ))}
+              {CE_CATEGORIES.map((cat) => {
+                const isAll = cat === '全部';
+                const active = isAll
+                  ? ceFilters.categories.length === 0
+                  : ceFilters.categories.includes(cat);
+                return (
+                  <button
+                    key={cat}
+                    type="button"
+                    className={`filter-chip filter-chip-sm ${active ? 'active' : ''}`}
+                    onClick={() => {
+                      if (isAll) {
+                        setCeFilters((f) => ({ ...f, categories: [] }));
+                      } else {
+                        setCeFilters((f) => ({
+                          ...f,
+                          categories:
+                            f.categories.length === 1 && f.categories[0] === cat ? [] : [cat],
+                        }));
+                      }
+                    }}
+                  >
+                    {cat}
+                  </button>
+                );
+              })}
+              <span className="divider-v" />
+              {[5, 4, 3, 2, 1].map((star) => {
+                const active = ceFilters.rarities.includes(star);
+                return (
+                  <button
+                    key={star}
+                    type="button"
+                    className={`filter-chip filter-chip-sm ${
+                      active ? 'active rarity-chip' : ''
+                    }`}
+                    onClick={() =>
+                      setCeFilters((f) => ({
+                        ...f,
+                        rarities: f.rarities.includes(star)
+                          ? f.rarities.filter((r) => r !== star)
+                          : [...f.rarities, star],
+                      }))
+                    }
+                  >
+                    {star}★
+                  </button>
+                );
+              })}
+              <span className="divider-v" />
+              {QUICK_CE_TAGS.map((tag) => {
+                const active = ceFilters.effectTags.includes(tag);
+                return (
+                  <button
+                    key={tag}
+                    type="button"
+                    className={`filter-chip filter-chip-sm ${active ? 'active' : ''}`}
+                    onClick={() =>
+                      setCeFilters((f) => ({
+                        ...f,
+                        effectTags: f.effectTags.includes(tag)
+                          ? f.effectTags.filter((t) => t !== tag)
+                          : [...f.effectTags, tag],
+                      }))
+                    }
+                  >
+                    {tag}
+                  </button>
+                );
+              })}
             </div>
           </div>
+
+          {activeCeFilterCount > 0 && (
+            <div className="active-filters-bar">
+              <span className="af-label">已选礼装条件 ({filteredCes.length}张)：</span>
+              {ceFilters.rarities.map((r) => (
+                <span
+                  key={`cer-${r}`}
+                  className="af-pill"
+                  onClick={() =>
+                    setCeFilters((f) => ({
+                      ...f,
+                      rarities: f.rarities.filter((x) => x !== r),
+                    }))
+                  }
+                >
+                  {r}★ ×
+                </span>
+              ))}
+              {ceFilters.categories.map((c) => (
+                <span
+                  key={`cec-${c}`}
+                  className="af-pill"
+                  onClick={() =>
+                    setCeFilters((f) => ({
+                      ...f,
+                      categories: f.categories.filter((x) => x !== c),
+                    }))
+                  }
+                >
+                  {c} ×
+                </span>
+              ))}
+              {ceFilters.statTypes.map((st) => (
+                <span
+                  key={`cest-${st}`}
+                  className="af-pill"
+                  onClick={() =>
+                    setCeFilters((f) => ({
+                      ...f,
+                      statTypes: f.statTypes.filter((x) => x !== st),
+                    }))
+                  }
+                >
+                  {st} ×
+                </span>
+              ))}
+              {ceFilters.effectTags.map((t) => (
+                <span
+                  key={`cet-${t}`}
+                  className="af-pill trait"
+                  onClick={() =>
+                    setCeFilters((f) => ({
+                      ...f,
+                      effectTags: f.effectTags.filter((x) => x !== t),
+                    }))
+                  }
+                >
+                  效果:{t} ×
+                </span>
+              ))}
+              <button
+                type="button"
+                className="af-reset-link"
+                onClick={() => setCeFilters(INITIAL_CE_FILTERS)}
+              >
+                清空全部
+              </button>
+            </div>
+          )}
         </div>
       )}
 
@@ -655,7 +842,6 @@ export const App: React.FC = () => {
               >
                 {filteredServants.slice(0, visibleLimit).map((svt) =>
                   viewMode === 'grid' ? (
-                    /* 图1样式：英灵官方带框头像缩略图 */
                     <button
                       key={svt.id}
                       type="button"
@@ -722,8 +908,7 @@ export const App: React.FC = () => {
               type="button"
               className="btn-toolbar active"
               onClick={() => {
-                setCeRarityFilter(null);
-                setCeCategoryFilter('全部');
+                setCeFilters(INITIAL_CE_FILTERS);
                 setSearchQuery('');
               }}
             >
@@ -735,7 +920,6 @@ export const App: React.FC = () => {
             <div className={viewMode === 'grid' ? 'thumb-grid ce-thumb-grid' : 'card-list-grid'}>
               {filteredCes.slice(0, visibleLimit).map((ce) =>
                 viewMode === 'grid' ? (
-                  /* 图2样式：概念礼装官方带框缩略图 */
                   <button
                     key={ce.id}
                     type="button"
@@ -773,6 +957,24 @@ export const App: React.FC = () => {
                         <span className="fgo-row-method">{ce.category}</span>
                       </div>
                       <div className="fgo-row-ce-desc">{ce.desMax || ce.des}</div>
+                      {ce.effectTags && ce.effectTags.length > 0 && (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 4 }}>
+                          {ce.effectTags.slice(0, 4).map((tg) => (
+                            <span
+                              key={tg}
+                              style={{
+                                fontSize: 10.5,
+                                background: '#eff6ff',
+                                color: '#1d4ed8',
+                                padding: '1px 5px',
+                                borderRadius: 4,
+                              }}
+                            >
+                              {tg}
+                            </span>
+                          ))}
+                        </div>
+                      )}
                       <div className="fgo-row-stats">
                         <span>ATK {ce.atk}</span>
                         <span>HP {ce.hp}</span>
@@ -822,7 +1024,20 @@ export const App: React.FC = () => {
         onChange={setSvtFilters}
         onReset={() => setSvtFilters(INITIAL_SERVANT_FILTERS)}
         traitGroups={catalog?.traitGroups || []}
-        matchedCount={filteredServants.length}
+        matchedServants={filteredServants}
+        onSelectServant={handleOpenServant}
+      />
+
+      {/* Filter Drawer for Craft Essences */}
+      <CeFilterModal
+        open={ceFilterModalOpen}
+        onClose={() => setCeFilterModalOpen(false)}
+        filters={ceFilters}
+        onChange={setCeFilters}
+        onReset={() => setCeFilters(INITIAL_CE_FILTERS)}
+        effectGroups={catalog?.ceEffectGroups || []}
+        matchedCes={filteredCes}
+        onSelectCe={handleOpenCe}
       />
 
       {/* Servant Detail Sheet */}
@@ -855,6 +1070,15 @@ export const App: React.FC = () => {
           setCeLoading(false);
         }}
         onJumpToServantByTitle={handleJumpToServantByTitle}
+        onSelectEffectTag={(tag) => {
+          setMainTab('ce');
+          setCeFilters((prev) => ({
+            ...prev,
+            effectTags: prev.effectTags.includes(tag)
+              ? prev.effectTags
+              : [...prev.effectTags, tag],
+          }));
+        }}
       />
     </div>
   );

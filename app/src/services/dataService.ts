@@ -1,3 +1,4 @@
+import { Capacitor, CapacitorHttp } from '@capacitor/core';
 import {
   CatalogSummaryPayload,
   ServantDetail,
@@ -9,7 +10,6 @@ import {
 const svtChunkCache = new Map<string, Record<string, ServantDetail>>();
 const ceChunkCache = new Map<string, Record<string, CraftEssenceDetail>>();
 
-// IndexedDB for storing incremental online updates without blocking UI
 const DB_NAME = 'mooncell_offline_overrides_v1';
 
 function openOverrideDb(): Promise<IDBDatabase> {
@@ -74,15 +74,16 @@ async function idbPut<T>(storeName: string, val: T): Promise<void> {
   }
 }
 
+const DATA_VERSION = '20261118v3';
+
 export async function loadCatalogSummary(): Promise<CatalogSummaryPayload> {
-  const resp = await fetch('./data/catalog_summary.json');
+  const resp = await fetch(`./data/catalog_summary.json?v=${DATA_VERSION}`);
   if (!resp.ok) {
     throw new Error('无法加载离线图鉴索引');
   }
   const data: CatalogSummaryPayload = await resp.json();
 
-  // Merge any online-updated items from IndexedDB
-  const extraSvts = await idbGetAll<ServantDetail>('servants');
+  const extraSvts = await idbGetAll<ServantSummary>('servants');
   if (extraSvts.length > 0) {
     const map = new Map(data.servants.map((s) => [s.id, s]));
     for (const s of extraSvts) {
@@ -92,7 +93,7 @@ export async function loadCatalogSummary(): Promise<CatalogSummaryPayload> {
     data.counts.servant = data.servants.length;
   }
 
-  const extraCes = await idbGetAll<CraftEssenceDetail>('ces');
+  const extraCes = await idbGetAll<CraftEssenceSummary>('ces');
   if (extraCes.length > 0) {
     const map = new Map(data.craftEssences.map((c) => [c.id, c]));
     for (const c of extraCes) {
@@ -107,13 +108,13 @@ export async function loadCatalogSummary(): Promise<CatalogSummaryPayload> {
 
 export async function loadServantDetail(id: number): Promise<ServantDetail | null> {
   const override = await idbGet<ServantDetail>('servants', id);
-  if (override) return override;
+  if (override && override.noblePhantasms) return override;
 
   const chunkStart = Math.floor((id - 1) / 50) * 50 + 1;
   const chunkEnd = chunkStart + 49;
   const key = `${chunkStart}_${chunkEnd}`;
   if (!svtChunkCache.has(key)) {
-    const resp = await fetch(`./data/servants/svt_${key}.json`);
+    const resp = await fetch(`./data/servants/svt_${key}.json?v=${DATA_VERSION}`);
     if (!resp.ok) return null;
     const json = await resp.json();
     svtChunkCache.set(key, json);
@@ -124,13 +125,13 @@ export async function loadServantDetail(id: number): Promise<ServantDetail | nul
 
 export async function loadCraftEssenceDetail(id: number): Promise<CraftEssenceDetail | null> {
   const override = await idbGet<CraftEssenceDetail>('ces', id);
-  if (override) return override;
+  if (override && override.cardFullUrl !== undefined) return override;
 
   const chunkStart = Math.floor((id - 1) / 200) * 200 + 1;
   const chunkEnd = chunkStart + 199;
   const key = `${chunkStart}_${chunkEnd}`;
   if (!ceChunkCache.has(key)) {
-    const resp = await fetch(`./data/ces/ce_${key}.json`);
+    const resp = await fetch(`./data/ces/ce_${key}.json?v=${DATA_VERSION}`);
     if (!resp.ok) return null;
     const json = await resp.json();
     ceChunkCache.set(key, json);
@@ -168,9 +169,39 @@ function parseCatalogBlocks(rawText: string): Record<string, string>[] {
 }
 
 /**
- * Non-blocking background updater that queries Mooncell MediaWiki API (with origin=*)
- * for new or modified Servants & Craft Essences and stores updates in IndexedDB.
+ * Request Mooncell API bypassing browser CORS:
+ * 1) On Android APK (Capacitor Native), uses CapacitorHttp native networking stack.
+ * 2) On Web Dev/Preview, uses Vite server proxy `/mooncell-api`.
  */
+async function fetchMooncellJson(queryString: string): Promise<any> {
+  if (Capacitor.isNativePlatform()) {
+    const res = await CapacitorHttp.get({
+      url: `https://fgo.wiki/api.php?${queryString}`,
+      headers: {
+        'User-Agent': 'MooncellOfflineApp/1.0',
+      },
+    });
+    if (res.status !== 200) {
+      throw new Error(`Mooncell API HTTP ${res.status}`);
+    }
+    return typeof res.data === 'string' ? JSON.parse(res.data) : res.data;
+  }
+
+  // Web environment: use Vite proxy `/mooncell-api` to avoid CORS block
+  const proxyResp = await fetch(`/mooncell-api?${queryString}`);
+  const contentType = proxyResp.headers.get('content-type') || '';
+  if (proxyResp.ok && contentType.includes('json')) {
+    return await proxyResp.json();
+  }
+
+  // Fallback direct call
+  const directResp = await fetch(`https://fgo.wiki/api.php?${queryString}&origin=*`);
+  if (!directResp.ok) {
+    throw new Error(`连接 Mooncell 失败 (HTTP ${directResp.status})`);
+  }
+  return await directResp.json();
+}
+
 export async function syncFromMooncell(
   currentServants: ServantSummary[],
   currentCes: CraftEssenceSummary[],
@@ -181,23 +212,19 @@ export async function syncFromMooncell(
 
   onProgress({
     running: true,
-    phase: '正在连接 Mooncell 检查最新图鉴索引...',
-    current: 5,
+    phase: '正在连接 Mooncell 检查最新英灵与礼装图鉴索引...',
+    current: 10,
     total: 100,
     updatedServants: 0,
     updatedCes: 0,
   });
 
-  const apiUrl =
-    'https://fgo.wiki/api.php?action=query&titles=' +
+  const qs =
+    'action=query&titles=' +
     encodeURIComponent('英灵图鉴/数据|礼装图鉴/数据') +
-    '&prop=revisions&rvprop=ids|timestamp|content&rvslots=main&format=json&formatversion=2&origin=*';
+    '&prop=revisions&rvprop=ids|timestamp|content&rvslots=main&format=json&formatversion=2';
 
-  const resp = await fetch(apiUrl);
-  if (!resp.ok) {
-    throw new Error(`连接 Mooncell 失败 (HTTP ${resp.status})`);
-  }
-  const data = await resp.json();
+  const data = await fetchMooncellJson(qs);
   const pages: any[] = data?.query?.pages || [];
 
   const svtExistingIds = new Set(currentServants.map((s) => s.id));
@@ -205,11 +232,14 @@ export async function syncFromMooncell(
 
   const missingSvtRecords: Record<string, string>[] = [];
   const missingCeRecords: Record<string, string>[] = [];
+  let onlineSvtTotal = 0;
+  let onlineCeTotal = 0;
 
   for (const p of pages) {
     const content = p?.revisions?.[0]?.slots?.main?.content || '';
     if (p.title === '英灵图鉴/数据') {
       const recs = parseCatalogBlocks(content);
+      onlineSvtTotal = recs.length;
       for (const r of recs) {
         const num = parseInt(r.id, 10);
         if (num && !svtExistingIds.has(num)) {
@@ -218,6 +248,7 @@ export async function syncFromMooncell(
       }
     } else if (p.title === '礼装图鉴/数据') {
       const recs = parseCatalogBlocks(content);
+      onlineCeTotal = recs.length;
       for (const r of recs) {
         const num = parseInt(r.id, 10);
         if (num && !ceExistingIds.has(num)) {
@@ -227,23 +258,19 @@ export async function syncFromMooncell(
     }
   }
 
-  // Also check recent changes on Mooncell for recently edited servant pages
   onProgress({
     running: true,
-    phase: `索引比对完成：发现 ${missingSvtRecords.length} 名新英灵，${missingCeRecords.length} 张新礼装，正在检查近期强化修订...`,
-    current: 35,
+    phase: `云端索引读取成功（英灵 ${onlineSvtTotal} / 礼装 ${onlineCeTotal}），正在核对近期页面修订...`,
+    current: 55,
     total: 100,
     updatedServants,
     updatedCes,
   });
 
-  const rcUrl =
-    'https://fgo.wiki/api.php?action=query&list=recentchanges&rcnamespace=0&rclimit=30&rcprop=title|ids|timestamp&format=json&formatversion=2&origin=*';
+  const rcQs =
+    'action=query&list=recentchanges&rcnamespace=0&rclimit=20&rcprop=title|ids|timestamp&format=json&formatversion=2';
   try {
-    const rcResp = await fetch(rcUrl);
-    if (rcResp.ok) {
-      await rcResp.json();
-    }
+    await fetchMooncellJson(rcQs);
   } catch {
     // ignore optional recentchanges check
   }
@@ -259,7 +286,7 @@ export async function syncFromMooncell(
     onProgress({
       running: true,
       phase: `正在同步新英灵 #${num} ${title}...`,
-      current: 40 + Math.round((doneWork / Math.max(totalWork, 1)) * 55),
+      current: 60 + Math.round((doneWork / Math.max(totalWork, 1)) * 35),
       total: 100,
       updatedServants,
       updatedCes,
@@ -286,6 +313,7 @@ export async function syncFromMooncell(
       iconLocal: `/assets/icons/svt/Servant${String(num).padStart(3, '0')}.jpg`,
       iconRemote: `https://fgo.wiki/w/${encodeURIComponent(title)}`,
     };
+    await idbPut('servants', summary);
     addedSvts.push(summary);
     updatedServants++;
   }
@@ -298,7 +326,7 @@ export async function syncFromMooncell(
     onProgress({
       running: true,
       phase: `正在同步新礼装 #${num} ${title}...`,
-      current: 40 + Math.round((doneWork / Math.max(totalWork, 1)) * 55),
+      current: 60 + Math.round((doneWork / Math.max(totalWork, 1)) * 35),
       total: 100,
       updatedServants,
       updatedCes,
@@ -318,11 +346,13 @@ export async function syncFromMooncell(
       atk: '100',
       des: r.des || '',
       desMax: r.des_max || '',
+      effectTags: [],
       iconLocal: `/assets/icons/ce/礼装${String(num).padStart(3, '0')}.jpg`,
       iconRemote: '',
       skillIconLocal: '/assets/icons/skill/加攻.png',
       skillIconRemote: '',
     };
+    await idbPut('ces', summary);
     addedCes.push(summary);
     updatedCes++;
   }
@@ -334,8 +364,8 @@ export async function syncFromMooncell(
     running: false,
     phase:
       updatedServants === 0 && updatedCes === 0
-        ? `已是最新数据（英灵 ${currentServants.length} 骑 / 礼装 ${currentCes.length} 张）`
-        : `同步完成：新增 ${updatedServants} 骑英灵、${updatedCes} 张礼装`,
+        ? `同步成功：当前已是最新数据（Mooncell 云端英灵 ${onlineSvtTotal} 骑 · 礼装 ${onlineCeTotal} 张）`
+        : `同步完成：新增 ${updatedServants} 骑英灵、${updatedCes} 张概念礼装`,
     current: 100,
     total: 100,
     updatedServants,

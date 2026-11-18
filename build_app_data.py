@@ -651,6 +651,98 @@ def parse_profile(wt: str) -> list[dict]:
     return sections
 
 
+CE_EFFECT_TAG_RULES = [
+    ("指令卡性能", [
+        ("Buster性能提升", r"Buster(?:指令卡)?性能|Busterカード性能"),
+        ("Arts性能提升", r"Arts(?:指令卡)?性能|Artsカード性能"),
+        ("Quick性能提升", r"Quick(?:指令卡)?性能|Quickカード性能"),
+        ("Extra攻击提升", r"Extra Attack"),
+    ]),
+    ("NP与充能", [
+        ("初始NP", r"以NP已达|チャージした状態でバトルを開始"),
+        ("NP获得量提升", r"NP获得量提升|NP獲得量を.*アップ"),
+        ("每回合获得NP", r"每回合获得NP|毎ターンNP獲得"),
+    ]),
+    ("输出与特攻加成", [
+        ("宝具威力提升", r"宝具威力提升|宝具威力を.*アップ"),
+        ("暴击威力提升", r"暴击威力.*提升|クリティカル威力を.*アップ"),
+        ("攻击力提升", r"攻击力.*提升|攻撃力を.*アップ"),
+        ("宝具OC提升", r"充能阶段上升|チャージ段階を.*引き上げる|チャージ段階を.*上げる"),
+        ("特攻状态", r"特攻状态|特攻状態を|特攻威力"),
+        ("伤害附加", r"伤害附加|ダメージプラス"),
+    ]),
+    ("暴击星相关", [
+        ("每回合获得暴击星", r"每回合获得.*暴击星|毎ターンスター"),
+        ("登场获得暴击星", r"登场时获得.*暴击星|参戦時にスター"),
+        ("暴击星集中度提升", r"暴击星集中度|スター集中度"),
+        ("暴击星发生率提升", r"暴击星发生率|スター発生率"),
+    ]),
+    ("命中·穿透·成功率", [
+        ("无敌贯通", r"无敌贯通|無敵貫通"),
+        ("必中状态", r"必中状态|必中状態"),
+        ("无视防御", r"无视防御|防御無視"),
+        ("弱化付与成功率提升", r"弱化付与成功率|弱体付与成功率"),
+        ("强化成功率提升", r"强化成功率|強化成功率"),
+        ("即死成功率提升", r"即死付与成功率|即死成功率"),
+    ]),
+    ("生存·防御·回复", [
+        ("无敌状态", r"付与.*无敌状态|無敵状態を付与"),
+        ("回避状态", r"付与.*回避状态|回避状態を付与"),
+        ("毅力", r"毅力状态|ガッツ状態"),
+        ("目标集中", r"目标集中状态|ターゲット集中"),
+        ("防御力提升", r"防御力.*提升|防御力を.*アップ"),
+        ("伤害减免", r"被伤害减免|ダメージカット"),
+        ("弱化无效/耐性", r"弱化无效|弱化耐性提升|弱体無効|弱体耐性を.*アップ"),
+        ("HP回复/最大HP", r"HP回复|最大HP|HPを回復|HP回復量"),
+    ]),
+    ("日常刷本加成", [
+        ("牵绊点数加成", r"牵绊.*提升|絆ポイント"),
+        ("御主/魔术礼装EXP加成", r"EXP.*提升|マスターEXP|魔術礼装EXP"),
+        ("QP获得量加成", r"QP.*提升|QP獲得量"),
+    ]),
+]
+
+
+def extract_ce_effect_tags(skill_text: str, category: str) -> list[str]:
+    tags = []
+    for _, rules in CE_EFFECT_TAG_RULES:
+        for tag_name, pattern in rules:
+            if re.search(pattern, skill_text, flags=re.I):
+                tags.append(tag_name)
+    if "EXP" in category and "礼装强化经验卡" not in tags:
+        tags.append("礼装强化经验卡")
+    return tags
+
+
+def classify_ce_stat_type(atk_str: str, hp_str: str) -> str:
+    def first_int(s: str) -> int:
+        m = re.search(r"\d+", s or "")
+        return int(m.group(0)) if m else 0
+    atk_v = first_int(atk_str)
+    hp_v = first_int(hp_str)
+    if atk_v > 0 and hp_v == 0:
+        return "纯ATK"
+    if hp_v > 0 and atk_v == 0:
+        return "纯HP"
+    if atk_v > 0 and hp_v > 0:
+        return "ATK/HP均衡"
+    return "特殊/零属性"
+
+
+def parse_bond_points(wt: str) -> list[int]:
+    """Parse {{牵绊点数|p1|...|p10|rarity}} into 10 per-level bond point integers."""
+    blocks = extract_template_blocks(wt, "牵绊点数")
+    if not blocks:
+        return []
+    _, pos = parse_template_params(blocks[0][1])
+    pts = []
+    for p in pos[:10]:
+        p_clean = p.strip().replace(",", "")
+        if p_clean.isdigit():
+            pts.append(int(p_clean))
+    return pts
+
+
 def parse_voices(voice_wt: str | None) -> list[dict]:
     """Parse Servant/语音 subpage wikitext into sections of voice lines."""
     if not voice_wt:
@@ -678,6 +770,98 @@ def parse_voices(voice_wt: str | None) -> list[dict]:
                 "items": items,
             })
     return sections
+
+
+CE_EFFECT_TAG_RULES = [
+    ("指令卡性能", [
+        ("Buster性能提升", r"Buster(?:指令卡)?性能|Busterカード性能"),
+        ("Arts性能提升", r"Arts(?:指令卡)?性能|Artsカード性能"),
+        ("Quick性能提升", r"Quick(?:指令卡)?性能|Quickカード性能"),
+        ("Extra攻击提升", r"Extra Attack"),
+    ]),
+    ("NP与充能", [
+        ("初始NP", r"以NP已达|チャージした状態でバトルを開始"),
+        ("NP获得量提升", r"NP获得量提升|NP獲得量を.*アップ"),
+        ("每回合获得NP", r"每回合获得NP|毎ターンNP獲得"),
+    ]),
+    ("输出与特攻加成", [
+        ("宝具威力提升", r"宝具威力提升|宝具威力を.*アップ"),
+        ("暴击威力提升", r"暴击威力.*提升|クリティカル威力を.*アップ"),
+        ("攻击力提升", r"攻击力.*提升|攻撃力を.*アップ"),
+        ("宝具OC提升", r"充能阶段上升|チャージ段階を.*引き上げる|チャージ段階を.*上げる"),
+        ("特攻状态", r"特攻状态|特攻状態を|特攻威力"),
+        ("伤害附加", r"伤害附加|ダメージプラス"),
+    ]),
+    ("暴击星相关", [
+        ("每回合获得暴击星", r"每回合获得.*暴击星|毎ターンスター"),
+        ("登场获得暴击星", r"登场时获得.*暴击星|参戦時にスター"),
+        ("暴击星集中度提升", r"暴击星集中度|スター集中度"),
+        ("暴击星发生率提升", r"暴击星发生率|スター発生率"),
+    ]),
+    ("命中·穿透·成功率", [
+        ("无敌贯通", r"无敌贯通|無敵貫通"),
+        ("必中状态", r"必中状态|必中状態"),
+        ("无视防御", r"无视防御|防御無視"),
+        ("弱化付与成功率提升", r"弱化付与成功率|弱体付与成功率"),
+        ("强化成功率提升", r"强化成功率|強化成功率"),
+        ("即死成功率提升", r"即死付与成功率|即死成功率"),
+    ]),
+    ("生存·防御·回复", [
+        ("无敌状态", r"付与.*无敌状态|無敵状態を付与"),
+        ("回避状态", r"付与.*回避状态|回避状態を付与"),
+        ("毅力", r"毅力状态|ガッツ状態"),
+        ("目标集中", r"目标集中状态|ターゲット集中"),
+        ("防御力提升", r"防御力.*提升|防御力を.*アップ"),
+        ("伤害减免", r"被伤害减免|ダメージカット"),
+        ("弱化无效/耐性", r"弱化无效|弱化耐性提升|弱体無効|弱体耐性を.*アップ"),
+        ("HP回复/最大HP", r"HP回复|最大HP|HPを回復|HP回復量"),
+    ]),
+    ("日常刷本加成", [
+        ("牵绊点数加成", r"牵绊.*提升|絆ポイント"),
+        ("御主/魔术礼装EXP加成", r"EXP.*提升|マスターEXP|魔術礼装EXP"),
+        ("QP获得量加成", r"QP.*提升|QP獲得量"),
+    ]),
+]
+
+
+def extract_ce_effect_tags(skill_text: str, category: str) -> list[str]:
+    tags = []
+    for _, rules in CE_EFFECT_TAG_RULES:
+        for tag_name, pattern in rules:
+            if re.search(pattern, skill_text, flags=re.I):
+                tags.append(tag_name)
+    if "EXP" in category and "礼装强化经验卡" not in tags:
+        tags.append("礼装强化经验卡")
+    return tags
+
+
+def classify_ce_stat_type(atk_str: str, hp_str: str) -> str:
+    def first_int(s: str) -> int:
+        m = re.search(r"\d+", s or "")
+        return int(m.group(0)) if m else 0
+    atk_v = first_int(atk_str)
+    hp_v = first_int(hp_str)
+    if atk_v > 0 and hp_v == 0:
+        return "纯ATK"
+    if hp_v > 0 and atk_v == 0:
+        return "纯HP"
+    if atk_v > 0 and hp_v > 0:
+        return "ATK/HP均衡"
+    return "特殊/零属性"
+
+
+def parse_bond_points(wt: str) -> list[int]:
+    """Parse {{牵绊点数|p1|...|p10|rarity}} into 10 per-level bond point integers."""
+    blocks = extract_template_blocks(wt, "牵绊点数")
+    if not blocks:
+        return []
+    _, pos = parse_template_params(blocks[0][1])
+    pts = []
+    for p in pos[:10]:
+        p_clean = p.strip().replace(",", "")
+        if p_clean.isdigit():
+            pts.append(int(p_clean))
+    return pts
 
 
 def resolve_wikitext(db: sqlite3.Connection, title: str, wt: str | None, redir: str | None) -> str:
@@ -788,7 +972,12 @@ def build_all():
                 "iconLocal": thumb_local,
                 "iconRemote": thumb_remote,
                 "des": des,
+                "introCn": intro_cn,
             }
+
+        combined_skill_text = f"{des}\n{des_max}"
+        effect_tags = extract_ce_effect_tags(combined_skill_text, cat_raw)
+        stat_type = classify_ce_stat_type(atk_str, hp_str)
 
         ce_summary = {
             "id": num,
@@ -799,6 +988,8 @@ def build_all():
             "rarity": rarity,
             "category": cat_raw,
             "type": ce_type,
+            "statType": stat_type,
+            "effectTags": effect_tags,
             "cost": cost_str,
             "hp": hp_str,
             "atk": atk_str,
@@ -962,6 +1153,7 @@ def build_all():
         voice_row = db.execute("SELECT wikitext FROM pages WHERE title=?", (f"{title}/语音",)).fetchone()
         voices = parse_voices(voice_row[0] if voice_row else None)
 
+        bond_points = parse_bond_points(wt)
         bond_ce = bond_ce_by_servant.get(title) or bond_ce_by_servant.get(name_cn)
 
         svt_summary = {
@@ -1043,6 +1235,7 @@ def build_all():
             "classSkills": class_skills,
             "appendSkills": append_skills,
             "materials": materials,
+            "bondPoints": bond_points,
             "bondCe": bond_ce,
             "profile": profile,
             "voices": voices,
@@ -1062,6 +1255,11 @@ def build_all():
     if extra_traits:
         trait_groups.append({"group": "其他特性", "traits": extra_traits})
 
+    ce_effect_groups = [
+        {"group": grp_name, "tags": [t for t, _ in rules]}
+        for grp_name, rules in CE_EFFECT_TAG_RULES
+    ]
+
     # Write catalog_summary.json
     summary_payload = {
         "generatedAt": "2026-11-18",
@@ -1070,6 +1268,7 @@ def build_all():
             "craftEssence": len(ce_summary_list),
         },
         "traitGroups": trait_groups,
+        "ceEffectGroups": ce_effect_groups,
         "servants": svt_summary_list,
         "craftEssences": ce_summary_list,
     }

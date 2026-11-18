@@ -634,22 +634,32 @@ select {
 
 /* ======================== 图3 & 图4 专属表格样式 ======================== */
 
-/* 阶段切换 Tab（完全对应图3、图4顶部的“第1阶段形象时 | 第2阶段形象时 | 第3阶段形象时”） */
+/* 阶段切换 Tab（完全对应图3、图4顶部的“第1阶段形象时 | 第2阶段形象时 | 第3阶段形象时”，单行绝不换行） */
 .mc-stage-tabs {
   display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 2px;
   border-bottom: 1px solid #cbd5e1;
   margin-bottom: 8px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+.mc-stage-tabs::-webkit-scrollbar {
+  display: none;
 }
 
 .mc-stage-tab {
-  padding: 7px 14px;
+  flex: 0 0 auto;
+  padding: 7px 9px;
   border: none;
   background: transparent;
   color: #1e293b;
-  font-size: 13.5px;
+  font-size: clamp(11.5px, 3.2vw, 13.5px);
   font-weight: 700;
+  white-space: nowrap;
   cursor: pointer;
   border-bottom: 3px solid transparent;
   transition: color 0.15s ease, border-color 0.15s ease;
@@ -1237,13 +1247,15 @@ select {
 .filter-class-btn {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 6px 8px;
+  gap: 5px;
+  padding: 6px 7px;
   border-radius: 8px;
   border: 1px solid var(--border-color);
   background: var(--bg-page);
   font-size: 12px;
   font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
   cursor: pointer;
 }
 
@@ -1254,9 +1266,10 @@ select {
 }
 
 .filter-class-icon {
-  width: 22px;
-  height: 22px;
+  width: 20px;
+  height: 20px;
   object-fit: contain;
+  flex-shrink: 0;
 }
 
 .filter-chips-row {
@@ -1275,14 +1288,15 @@ select {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 5px;
-  padding: 6px 10px;
+  gap: 4px;
+  padding: 6px 9px;
   border-radius: 7px;
   border: 1px solid var(--border-color);
   background: var(--bg-page);
   color: var(--text-main);
-  font-size: 12.5px;
+  font-size: 12px;
   font-weight: 600;
+  white-space: nowrap;
   cursor: pointer;
 }
 
@@ -1338,7 +1352,7 @@ select {
   border: 1px solid var(--border-color);
   border-radius: 7px;
   padding: 0 9px;
-  height: 34px;
+  height: 36px;
   margin-bottom: 10px;
 }
 
@@ -1355,6 +1369,136 @@ select {
   background: transparent;
   cursor: pointer;
   color: var(--text-muted);
+}
+
+.trait-select-matches-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  background: var(--accent-blue-light) !important;
+  color: var(--accent-blue) !important;
+  border: 1px solid #bfdbfe !important;
+  padding: 3px 7px;
+  border-radius: 5px;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.selected-traits-strip {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-bottom: 10px;
+  padding: 6px 8px;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  border-radius: 7px;
+}
+
+.strip-label {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: #92400e;
+}
+
+.selected-trait-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  background: #f59e0b;
+  color: #ffffff;
+  border: none;
+  border-radius: 12px;
+  padding: 2px 8px;
+  font-size: 11.5px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.trait-live-preview-box {
+  margin-top: 12px;
+  background: #f1f5f9;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  padding: 10px;
+}
+
+.trait-live-preview-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: #0f172a;
+  margin-bottom: 8px;
+}
+
+.trait-live-empty {
+  text-align: center;
+  padding: 16px;
+  font-size: 12.5px;
+  color: var(--text-muted);
+}
+
+.trait-live-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(66px, 1fr));
+  gap: 8px 6px;
+  max-height: 250px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.trait-live-svt-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 7px;
+  padding: 4px 3px;
+  cursor: pointer;
+}
+
+.trait-live-svt-card:hover {
+  border-color: var(--accent-blue);
+}
+
+.trait-live-avatar-wrap {
+  position: relative;
+  width: 54px;
+  height: 58px;
+}
+
+.trait-live-avatar {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.trait-live-no {
+  position: absolute;
+  top: 1px;
+  right: 1px;
+  background: rgba(15, 23, 42, 0.78);
+  color: #ffffff;
+  font-size: 9px;
+  padding: 0 3px;
+  border-radius: 3px;
+}
+
+.trait-live-name {
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--text-main);
+  margin-top: 2px;
+  width: 100%;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .trait-group-card {
@@ -1673,27 +1817,42 @@ select {
   cursor: pointer;
 }
 
-/* Detail Sub-Navigation */
+/* Detail Sub-Navigation（单行自适应，保证按钮与文字绝不换行） */
 .detail-nav-tabs {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 6px;
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 5px;
   margin: 12px 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+.detail-nav-tabs::-webkit-scrollbar {
+  display: none;
 }
 
 .detail-nav-tab {
-  display: flex;
+  flex: 1 0 auto;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 5px;
-  padding: 9px 4px;
+  gap: 4px;
+  padding: 8px 8px;
   border-radius: 8px;
   border: 1px solid var(--border-color);
   background: var(--bg-surface);
   color: var(--text-secondary);
-  font-size: 12.5px;
+  font-size: clamp(11.5px, 3vw, 13px);
   font-weight: 700;
+  white-space: nowrap;
   cursor: pointer;
+}
+
+.detail-nav-tab svg {
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
 }
 
 .detail-nav-tab.active {
@@ -1970,6 +2129,78 @@ select {
   margin-top: 4px;
   font-size: 11.5px;
   color: var(--text-muted);
+}
+
+/* Bond Points Table */
+.bond-points-table-wrap {
+  overflow-x: auto;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+}
+
+.bond-points-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+  text-align: center;
+  background: #ffffff;
+}
+
+.bond-points-table th {
+  background: #e9eef5;
+  color: #0f172a;
+  font-weight: 800;
+  padding: 8px 6px;
+  border-bottom: 1px solid #cbd5e1;
+  border-right: 1px solid #cbd5e1;
+  white-space: nowrap;
+}
+
+.bond-points-table td {
+  padding: 7px 6px;
+  border-bottom: 1px solid #e2e8f0;
+  border-right: 1px solid #e2e8f0;
+  color: #1e293b;
+  white-space: nowrap;
+}
+
+.bond-points-table th:last-child,
+.bond-points-table td:last-child {
+  border-right: none;
+}
+
+.bond-lv-col {
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.bond-reward-col {
+  text-align: left;
+  padding-left: 10px !important;
+  font-weight: 600;
+}
+
+.bond-row-lv10 {
+  background: #fffbeb;
+}
+
+.bond-row-lv10 td {
+  color: #92400e;
+  font-weight: 700;
+}
+
+.bond-row-dreamfire {
+  background: #f8fafc;
+}
+
+.dreamfire-tag {
+  display: inline-block;
+  margin-left: 4px;
+  padding: 0 4px;
+  font-size: 10px;
+  border-radius: 4px;
+  background: #fee2e2;
+  color: #dc2626;
 }
 
 /* Lightbox */

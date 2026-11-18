@@ -2,54 +2,48 @@
 
 ## 1. 目标与状态
 
-- **目标**：基于 Mooncell（`fgo.wiki`）离线图鉴数据构建美观顺滑的 Android / Web 移动端图鉴 App，涵盖英灵图鉴与礼装图鉴、图1/图2样式带框缩略图展示、6 维组合筛选（含同类特性归组）、图3/图4样式的技能与宝具多阶段切换展示、压缩缩略图预打包与卡面放大下载原图、以及非阻塞后台网站数据更新。
+- **目标**：基于 Mooncell（`fgo.wiki`）离线图鉴数据构建美观顺滑的 Android / Web 移动端图鉴 App，涵盖英灵图鉴与礼装图鉴、图1/图2样式带框缩略图展示、多维筛选与实时预览、图3/图4样式的技能与宝具多阶段切换展示、从者完整羁绊数据、礼装效果标签自动归类与筛选、压缩缩略图预打包与卡面放大下载原图、非阻塞后台网站数据更新，以及安卓系统返回键/边缘侧滑手势逐层退出。
 - **已完成**：
-  - 补齐 `data/mooncell.sqlite3` 中的核心解析模板（`模板:基础数值`、`模板:宝具`、`模板:持有技能`、`模板:职阶技能`、`模板:追加技能`、`技能一览/追加技能`、`模板:概念礼装`）及 476 个英灵语音子页面（`{英灵名}/语音`）。
-  - 编写 [build_app_data.py](file:///d:/git_proj/FGO_SA/build_app_data.py)，将 487 位英灵和 2,719 张概念礼装完整解析为结构化 JSON（输出至 `app/public/data/`），并生成离线图片清单 `data/image_manifest.json`（共 7,179 项资源）。
-  - 编写 [download_assets.py](file:///d:/git_proj/FGO_SA/download_assets.py)，通过 HTTPS Keep-Alive + Pillow WebP 压缩将 7,165 张图片（英灵带框头像 `Servant001~487.jpg`、礼装带框缩略图 `礼装001~2719.jpg`、技能/素材/UI 图标、以及英灵与礼装 `.webp` 压缩卡面）预打包至 `app/public/assets/`。
-  - 搭建 React + TypeScript + Vite + Capacitor 移动端应用（[app/](file:///d:/git_proj/FGO_SA/app/package.json)）及 Android 原生工程（`app/android/`），并配置 GitHub Actions 自动编译 APK 工作流（[.github/workflows/build-android-apk.yml](file:///d:/git_proj/FGO_SA/.github/workflows/build-android-apk.yml)）。
-- **剩余待办**：
-  - 本机未安装 Android SDK / JDK，若需在本机直接编译 `.apk`（而非通过 GitHub Actions 云端构建），需安装 JDK 21 与 Android SDK。
-  - 后续可根据需要继续扩展指令纹章图鉴 Tab 或从者任务/幕间物语关卡配置子页面。
+  1. **原始数据库与语音补齐（`data/mooncell.sqlite3`）**：包含 487 骑英灵、2,719 张概念礼装、核心解析模板及 476 个英灵语音子页面。
+  2. **结构化解析器（[build_app_data.py](file:///d:/git_proj/FGO_SA/build_app_data.py)）**：
+     - 解析从者基础数值、`<tabber>` / `{{强化信息}}` / `{{复合标签}}` 多阶段技能与宝具、职阶与追加技能 1~5、素材需求、个人资料与语音。
+     - **新增从者羁绊数据**：解析 `{{牵绊点数}}` Lv.1~Lv.10 单级需求，结合梦火 Lv.11~Lv.15 经验、各星级圣晶石/苹果/硬币达成奖励、专属牵绊礼装完整属性与背景解说文本。
+     - **新增概念礼装效果标签与属性倾向**：自动从全部 2,719 张礼装（含中/日文描述）提取 7 大类 30 种效果标签（如 `初始NP(开局充能)`、`Buster性能提升`、`暴击威力提升`、`宝具威力提升`、`无敌贯通` 等）及 `纯ATK / ATK+HP均衡 / 纯HP / 特殊` 属性倾向。
+  3. **全量离线缩略图下载与压缩（[download_assets.py](file:///d:/git_proj/FGO_SA/download_assets.py)）**：7,165 张图标与 Pillow WebP 压缩立绘已预打包至 `app/public/assets/`。
+  4. **移动端 App 与 Android 交互增强（[app/](file:///d:/git_proj/FGO_SA/app/package.json)）**：
+     - **在线更新跨域修复**：网页端通过 [vite.config.ts](file:///d:/git_proj/FGO_SA/app/vite.config.ts) `/mooncell-api` 反向代理绕过 Mooncell CORS 限制；安卓端通过 `CapacitorHttp` 原生网络栈请求。
+     - **特性与礼装标签多词搜索 + 实时预览**：支持空格分隔同时搜索多个特性/标签，并在筛选抽屉底部实时展示符合条件的从者/礼装带框缩略图。
+     - **防换行布局优化**：详情页分栏按钮（`.detail-nav-tabs`）与技能/宝具多阶段切换栏（`.mc-stage-tabs`）强制单行自适应展示，杜绝窄屏文字折行。
+     - **安卓系统返回键与边缘侧滑手势支持**：通过 [backNavigation.ts](file:///d:/git_proj/FGO_SA/app/src/utils/backNavigation.ts) 历史栈钩子与 Android [MainActivity.java](file:///d:/git_proj/FGO_SA/app/android/app/src/main/java/wiki/fgo/mooncell/offline/MainActivity.java) `OnBackPressedCallback` 联动，按「卡面大图查看器 → 从者/礼装详情页 → 筛选抽屉」优先级逐层关闭界面。
 
 ---
 
 ## 2. 关键改动与决策
 
+- **[app/vite.config.ts](file:///d:/git_proj/FGO_SA/app/vite.config.ts) & [app/src/services/dataService.ts](file:///d:/git_proj/FGO_SA/app/src/services/dataService.ts)**：
+  - **踩坑注意**：`https://fgo.wiki/api.php` 未配置 `$wgCrossSiteAJAXdomains`，浏览器直接请求即使带 `origin=*` 也会因缺少 `Access-Control-Allow-Origin` 响应头报错。通过 Vite 代理 `/mooncell-api`（Web 端）与 `CapacitorHttp`（Android 原生端）彻底解决。
 - **[build_app_data.py](file:///d:/git_proj/FGO_SA/build_app_data.py)**：
-  - 递归解析 `<tabber>`、`{{强化信息}}`、`{{复合标签}}` 与玛修各章节 `heroine` 区块，生成带 `tabLabel` 与 `cond` 的多阶段技能/宝具结构。
-  - 兼容 `{{宝具}}` 中的 `|宝具信息=` 与 `{{持有技能}}` 中的 `|技能信息=` 特殊语法（如莫德雷德(Rider)、苍崎青子、哈贝特洛特等）。
-  - 将 `{{特攻|...}}` 转换为 `⟪特攻:...⟫` 标记（避免被 `[[链接]]` 清洗正则误剥离），供前端渲染图4同款的蓝色虚线下划线。
-  - 将 60+ 种从者特性与属性归类为 6 大分组（阵营与属性、性别与体型、种族与生命形态、系列与面孔、势力与地域文化、战斗机制与特殊状态）。
-- **[download_assets.py](file:///d:/git_proj/FGO_SA/download_assets.py)**：
-  - **踩坑注意**：Mooncell CDN（`media.fgo.wiki`）遵循标准 MediaWiki 首字母大写 + UTF-8 文件名 MD5 路径规则（`/{md5[0]}/{md5[:2]}/{filename}`）。礼装带框图标文件名为 3 位零填充 `礼装{id:03d}.jpg`（如 `礼装001.jpg`、`礼装191.jpg`、`礼装2719.jpg`），而非 4 位零填充。
-  - 卡面缩略图仅预生成特定宽度（如英灵 `285px`、礼装 `300px`），请求任意非标宽度会断开连接；脚本优先拉取标准缩略图（404 时回退原图），再用 Pillow 统一压缩为宽度 `285px`、`quality=78` 的 `.webp` 文件。
-- **前端与 Android 工程（[app/src/](file:///d:/git_proj/FGO_SA/app/src/App.tsx)）**：
-  - [SkillAndNpTables.tsx](file:///d:/git_proj/FGO_SA/app/src/components/SkillAndNpTables.tsx)：实现图3持有技能表格（多阶段 Tab、`8→7→6` 红字充能、Lv.6/Lv.10 标红）与图4宝具表格（红/蓝/绿斜格纹标题横幅、立体金字、特攻蓝色虚线下划线、5级数值表）。
-  - [ServantFilterModal.tsx](file:///d:/git_proj/FGO_SA/app/src/components/ServantFilterModal.tsx)：实现星级、职阶、宝具颜色、宝具种类、获取途径、6 大特性分类（支持 AND / OR 切换与关键词检索）多维筛选。
-  - [CardLightbox.tsx](file:///d:/git_proj/FGO_SA/app/src/components/CardLightbox.tsx)：支持阶段立绘放大、切换高清原图预览及一键下载原始 `.png` 资源图片。
-  - [dataService.ts](file:///d:/git_proj/FGO_SA/app/src/services/dataService.ts)：通过 MediaWiki API `origin=*` 跨域接口在后台异步检查更新并存入 IndexedDB，不阻塞主界面操作。
+  - 新增 `parse_bond_points`、`extract_ce_effect_tags` 与 `classify_ce_stat_type`，输出 `bondPoints`、`ceEffectGroups`、`effectTags`、`statType`。
+- **[app/src/components/ServantFilterModal.tsx](file:///d:/git_proj/FGO_SA/app/src/components/ServantFilterModal.tsx) & [CeFilterModal.tsx](file:///d:/git_proj/FGO_SA/app/src/components/CeFilterModal.tsx)**：
+  - 支持空格/逗号分隔多关键词同时检索，底部内嵌实时匹配结果网格，点击头像可直接打开对应从者或礼装详情。
+- **[app/src/components/ServantDetailModal.tsx](file:///d:/git_proj/FGO_SA/app/src/components/ServantDetailModal.tsx)**：
+  - 新增「❤️ 羁绊数据」独立分栏，整合专属牵绊礼装效果与解说故事、Lv.1~Lv.15 单级/累计牵绊表与奖励、以及牵绊等级专属语音。
+- **[app/src/utils/backNavigation.ts](file:///d:/git_proj/FGO_SA/app/src/utils/backNavigation.ts) & [MainActivity.java](file:///d:/git_proj/FGO_SA/app/android/app/src/main/java/wiki/fgo/mooncell/offline/MainActivity.java)**：
+  - 使用分层 History 状态栈拦截浏览器 `popstate`、`Escape` 键与 Android 系统返回手势。
 
 ---
 
 ## 3. 验证结果
 
-- **结构化数据生成校验**：
-  - 运行 `python -X utf8 build_app_data.py`：成功生成 487 位英灵、2,719 张概念礼装的结构化分片数据及 7,179 条图片清单。
-- **离线图片下载与压缩校验**：
-  - 运行 `python -X utf8 download_assets.py --workers 16`：成功下载并压缩 7,165 张图片至 `app/public/assets/`（仅 14 张未实装/敌方词条缺图，前端由 [SmartImage.tsx](file:///d:/git_proj/FGO_SA/app/src/components/SmartImage.tsx) 自动优雅降级）。
-- **TypeScript 与生产构建校验**：
-  - 运行 `app\node_modules\.bin\tsc.cmd -p app\tsconfig.json --noEmit`：0 错误通过。
-  - 运行 `npm run build --prefix app`：Vite 生产构建成功（`dist/` 产物与离线资源完整）。
-  - 运行 `npx cap add android`：成功生成 `app/android/` 原生 Android 工程并完成资源同步。
-- **未验证内容**：
-  - 因当前 Windows 环境未安装 JDK 与 Android SDK，本地 Gradle `assembleDebug` 尚未在本机执行（已配置 `.github/workflows/build-android-apk.yml` 供云端编译）。
+- 运行 `python -X utf8 build_app_data.py`：成功重新生成包含羁绊点数与礼装效果标签的 487 骑英灵 + 2,719 张礼装结构化数据。
+- 运行 `app\node_modules\.bin\tsc.cmd -p app\tsconfig.json --noEmit`：**0 错误通过**。
 
 ---
 
 ## 4. 下一步
 
-1. **本地预览体验**：在仓库根目录执行 `npm run dev --prefix app`（或 `npm run preview --prefix app`），在浏览器或手机局域网访问即可直接体验完整功能。
-2. **生成 Android APK 安装包**：
-   - **方式 A（云端自动构建）**：将代码推送到 GitHub，在 Actions 页面运行 `Build Android APK` 工作流即可下载 `app-debug.apk`。
-   - **方式 B（本地构建）**：安装 Android Studio（含 JDK 21 与 Android SDK）后，进入 `app/` 运行 `npm run android:open` 或进入 `app/android/` 执行 `.\gradlew.bat assembleDebug`。
+1. **在浏览器测试全部新功能**：
+   - 若 `npm run dev --prefix app` 已在运行，建议重启一次命令以加载更新后的 `vite.config.ts` 代理配置。
+2. **构建生产包或推送到 GitHub 自动打包 APK**：
+   - 本地生产构建验证：`npm run build --prefix app`
+   - 推送至 GitHub 触发云端 APK 打包：`git add . && git commit -m "Enhance sync, traits, bond tab, CE tags and back navigation" && git push origin main`

@@ -4,12 +4,14 @@ import { CraftEssenceDetail } from '../types';
 import { SmartImage } from './SmartImage';
 import { FormattedEffectText } from './SkillAndNpTables';
 import { CardLightbox } from './CardLightbox';
+import { useBackClose } from '../utils/backNavigation';
 
 interface CeDetailModalProps {
   ce: CraftEssenceDetail | null;
   loading: boolean;
   onClose: () => void;
   onJumpToServantByTitle: (title: string) => void;
+  onSelectEffectTag?: (tag: string) => void;
 }
 
 export const CeDetailModal: React.FC<CeDetailModalProps> = ({
@@ -17,9 +19,12 @@ export const CeDetailModal: React.FC<CeDetailModalProps> = ({
   loading,
   onClose,
   onJumpToServantByTitle,
+  onSelectEffectTag,
 }) => {
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [showJp, setShowJp] = useState(false);
+
+  useBackClose(Boolean(ce || loading), onClose);
 
   if (!ce && !loading) return null;
 
@@ -93,10 +98,33 @@ export const CeDetailModal: React.FC<CeDetailModalProps> = ({
                       <strong className="q-stat-val">{ce.hp || '0'}</strong>
                     </div>
                     <div className="q-stat-box">
-                      <span className="q-stat-label">画师</span>
-                      <strong className="q-stat-val">{ce.illustrator || '—'}</strong>
+                      <span className="q-stat-label">画师 · 属性倾向</span>
+                      <strong className="q-stat-val">
+                        {ce.illustrator || '—'} {ce.statType ? `· ${ce.statType}` : ''}
+                      </strong>
                     </div>
                   </div>
+
+                  {ce.effectTags && ce.effectTags.length > 0 && (
+                    <div className="traits-tag-cloud" style={{ marginTop: 10 }}>
+                      {ce.effectTags.map((tag) => (
+                        <button
+                          key={tag}
+                          type="button"
+                          className="trait-clickable-pill"
+                          onClick={() => {
+                            if (onSelectEffectTag) {
+                              onSelectEffectTag(tag);
+                              onClose();
+                            }
+                          }}
+                          title="点击筛选拥有该效果标签的所有概念礼装"
+                        >
+                          {tag}
+                        </button>
+                      ))}
+                    </div>
+                  )}
 
                   {ce.bondServant && (
                     <button

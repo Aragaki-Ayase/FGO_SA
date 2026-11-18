@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { X, Download, ZoomIn, ZoomOut, Sparkles, ChevronLeft, ChevronRight } from 'lucide-react';
 import { AscensionArt } from '../types';
 import { SmartImage } from './SmartImage';
+import { useBackClose } from '../utils/backNavigation';
 
 interface CardLightboxProps {
   open: boolean;
@@ -22,6 +23,8 @@ export const CardLightbox: React.FC<CardLightboxProps> = ({
   const [useHdOriginal, setUseHdOriginal] = useState(false);
   const [zoom, setZoom] = useState(1);
   const [downloading, setDownloading] = useState(false);
+
+  useBackClose(open && arts.length > 0, onClose);
 
   if (!open || arts.length === 0) return null;
 
