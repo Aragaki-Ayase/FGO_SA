@@ -12,7 +12,42 @@ import {
 
 const STORY_DB_NAME = 'atlas_story_cache_v1';
 const PROGRESS_STORAGE_KEY = 'mooncell_story_progress_v1';
-const STORY_DATA_VERSION = '20261119v3';
+const STORY_DATA_VERSION = '20261119v4';
+const STORY_OVERRIDES_KEY = 'story_wars_overrides_v2';
+
+const REAL_MAIN_BANNER_MAP: Record<number, string> = {
+  100: './assets/story/wars/war_100.webp',
+  101: './assets/story/wars/war_101.webp',
+  102: './assets/story/wars/war_102.webp',
+  103: './assets/story/wars/war_103.webp',
+  104: './assets/story/wars/war_104.webp',
+  105: './assets/story/wars/war_105.webp',
+  106: './assets/story/wars/war_106.webp',
+  107: './assets/story/wars/war_107.webp',
+  108: './assets/story/wars/war_108.webp',
+  201: './assets/story/wars/war_201.webp',
+  202: './assets/story/wars/war_202.webp',
+  203: './assets/story/wars/war_203.webp',
+  204: './assets/story/wars/war_204.webp',
+  300: './assets/story/wars/war_300.webp',
+  301: './assets/story/wars/war_301.webp',
+  302: './assets/story/wars/war_302.webp',
+  303: './assets/story/wars/war_303.webp',
+  304: './assets/story/wars/war_304.webp',
+  305: './assets/story/wars/war_305.webp',
+  306: './assets/story/wars/war_306.webp',
+  307: './assets/story/wars/war_307.webp',
+  308: './assets/story/wars/war_308.webp',
+  309: './assets/story/wars/war_309.webp',
+  310: './assets/story/wars/war_310.webp',
+  311: './assets/story/wars/war_311.webp',
+  400: './assets/story/wars/war_400.webp',
+  401: './assets/story/wars/war_401.webp',
+  402: './assets/story/wars/war_402.webp',
+  403: './assets/story/wars/war_403.webp',
+  404: './assets/story/wars/war_404.webp',
+  405: './assets/story/wars/war_405.webp',
+};
 
 /* ========================= IndexedDB 工具 ========================= */
 
@@ -172,16 +207,18 @@ function classifyWar(w: any): StoryWarCategory | null {
   const cleanLabel = longName || name;
 
   if (!cleanLabel || cleanLabel === '-' || cleanLabel === '—' || cleanLabel === '迦勒底之门') {
-    if (wid !== 14000) return null;
+    return null;
   }
 
   if (flags.includes('mainScenario')) {
+    // 剔除 11000(主线记录1)、12000(主线记录1.5)、13000(主线记录2)、14000(奏章外壳) 及 40201~40501 空白地图容器
+    if (wid >= 10000) return null;
     if (wid >= 100 && wid < 200) return 'part1';
     if (wid >= 200 && wid < 300) return 'part15';
-    if (wid >= 40000 || cleanLabel.includes('奏章') || cleanLabel.includes('Ordeal Call')) {
+    if ((wid >= 400 && wid < 500) || cleanLabel.includes('奏章') || cleanLabel.includes('Ordeal Call')) {
       return 'ordeal_call';
     }
-    if (wid >= 300) return 'part2';
+    if (wid >= 300 && wid < 400) return 'part2';
     return 'part1';
   }
   if (eventId > 0) return 'event';
@@ -197,16 +234,20 @@ export async function loadStoryWars(): Promise<StoryWarsPayload> {
 
   const cached = await idbGet<{ key: string; wars?: StoryWarSummary[]; updatedAt?: string }>(
     'meta',
-    'story_wars_overrides'
+    STORY_OVERRIDES_KEY
   );
   if (cached?.wars && cached.wars.length > 0) {
     const map = new Map(base.wars.map((w) => [w.id, w]));
     for (const w of cached.wars) {
-      map.set(w.id, w);
+      if (w.category !== 'event' && w.id >= 10000) continue;
+      map.set(w.id, {
+        ...w,
+        banner: REAL_MAIN_BANNER_MAP[w.id] || w.banner,
+      });
     }
-    const all = Array.from(map.values());
+    const all = Array.from(map.values()).filter((w) => w.category === 'event' || w.id < 10000);
     const mainList = all.filter((w) => w.category !== 'event').sort((a, b) => a.id - b.id);
-    const evList = all.filter((w) => w.category === 'event').sort((a, b) => b.id - a.id);
+    const evList = all.filter((w) => w.category === 'event').sort((a, b) => (b.startJp || 0) - (a.startJp || 0) || b.id - a.id);
     base.wars = [...mainList, ...evList];
     base.counts = { total: base.wars.length, main: mainList.length, event: evList.length };
     if (cached.updatedAt) base.generatedAt = cached.updatedAt;
@@ -241,7 +282,7 @@ export async function syncStoryWarsFromAtlas(): Promise<{
 
   const prev = await idbGet<{ key: string; wars?: StoryWarSummary[] }>(
     'meta',
-    'story_wars_overrides'
+    STORY_OVERRIDES_KEY
   );
   const prevBannerMap = new Map((prev?.wars || []).map((x) => [x.id, x.banner]));
 
@@ -259,9 +300,10 @@ export async function syncStoryWarsFromAtlas(): Promise<{
     if (!title) continue;
     const startJp = eventId > 0 ? jpStartMap.get(eventId) || 0 : 0;
     const banner =
+      REAL_MAIN_BANNER_MAP[wid] ||
       String(w.banner || '').trim() ||
       prevBannerMap.get(wid) ||
-      `https://static.atlasacademy.io/CN/Banner/questboard_cap${wid}.png`;
+      (cat !== 'event' ? `https://static.atlasacademy.io/CN/Banner/questboard_cap${wid}.png` : '');
     parsed.push({
       id: wid,
       eventId,
@@ -279,7 +321,7 @@ export async function syncStoryWarsFromAtlas(): Promise<{
 
   if (parsed.length > 0) {
     await idbPut('meta', {
-      key: 'story_wars_overrides',
+      key: STORY_OVERRIDES_KEY,
       wars: parsed,
       updatedAt: nowStr,
     });

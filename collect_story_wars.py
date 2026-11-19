@@ -1,7 +1,8 @@
 """
 Collect lightweight FGO CN story war index from Atlas Academy (basic_war.json)
-enriched with JP release timestamps (JP basic_event.json), and download 5 category
-banner images locally to app/public/assets/story/ for crisp offline Mooncell-style cards.
+enriched with JP release timestamps (JP basic_event.json), real chapter banner URLs,
+and download 5 category banners + 31 main story chapter banners locally to
+app/public/assets/story/ for instant, 100% accurate offline rendering.
 """
 import io
 import json
@@ -14,7 +15,43 @@ from PIL import Image
 ROOT = Path(__file__).resolve().parent
 APP_DATA_DIR = ROOT / "app" / "public" / "data"
 STORY_ASSETS_DIR = ROOT / "app" / "public" / "assets" / "story"
+WAR_BANNERS_DIR = STORY_ASSETS_DIR / "wars"
 JST = timezone(timedelta(hours=9))
+
+# Verified real banner filenames from /nice/CN/war/{id} (where warId != capId)
+REAL_MAIN_BANNER_URL: dict[int, str] = {
+    100: "https://static.atlasacademy.io/CN/Banner/questboard_cap100.png",
+    101: "https://static.atlasacademy.io/CN/Banner/questboard_cap101.png",
+    102: "https://static.atlasacademy.io/CN/Banner/questboard_cap102.png",
+    103: "https://static.atlasacademy.io/CN/Banner/questboard_cap103.png",
+    104: "https://static.atlasacademy.io/CN/Banner/questboard_cap104.png",
+    105: "https://static.atlasacademy.io/CN/Banner/questboard_cap105.png",
+    106: "https://static.atlasacademy.io/CN/Banner/questboard_cap106.png",
+    107: "https://static.atlasacademy.io/CN/Banner/questboard_cap107.png",
+    108: "https://static.atlasacademy.io/CN/Banner/questboard_cap108.png",
+    201: "https://static.atlasacademy.io/CN/Banner/questboard_cap201.png",
+    202: "https://static.atlasacademy.io/CN/Banner/questboard_cap202.png",
+    203: "https://static.atlasacademy.io/CN/Banner/questboard_cap203.png",
+    204: "https://static.atlasacademy.io/CN/Banner/questboard_cap204.png",
+    300: "https://static.atlasacademy.io/CN/Banner/questboard_cap300.png",
+    301: "https://static.atlasacademy.io/CN/Banner/questboard_cap301.png",
+    302: "https://static.atlasacademy.io/CN/Banner/questboard_cap302.png",
+    303: "https://static.atlasacademy.io/CN/Banner/questboard_cap304.png",
+    304: "https://static.atlasacademy.io/CN/Banner/questboard_cap305.png",
+    305: "https://static.atlasacademy.io/CN/Banner/questboard_cap307.png",
+    306: "https://static.atlasacademy.io/CN/Banner/questboard_cap308.png",
+    307: "https://static.atlasacademy.io/CN/Banner/questboard_cap309.png",
+    308: "https://static.atlasacademy.io/CN/Banner/questboard_cap312.png",
+    309: "https://static.atlasacademy.io/CN/Banner/questboard_cap313.png",
+    310: "https://static.atlasacademy.io/CN/Banner/questboard_cap315.png",
+    311: "https://static.atlasacademy.io/CN/Banner/questboard_cap317.png",
+    400: "https://static.atlasacademy.io/CN/Banner/questboard_cap400.png",
+    401: "https://static.atlasacademy.io/CN/Banner/questboard_cap401.png",
+    402: "https://static.atlasacademy.io/CN/Banner/questboard_cap402.png",
+    403: "https://static.atlasacademy.io/CN/Banner/questboard_cap403.png",
+    404: "https://static.atlasacademy.io/CN/Banner/questboard_cap405.png",
+    405: "https://static.atlasacademy.io/CN/Banner/questboard_cap406.png",
+}
 
 
 def fetch_json(url: str, retries: int = 3):
@@ -51,17 +88,19 @@ def classify_war(w: dict) -> str | None:
 
     clean_label = long_name or name
     if not clean_label or clean_label in ("-", "—", "迦勒底之门"):
-        if wid not in (14000,):
-            return None
+        return None
 
     if "mainScenario" in flags:
+        # 剔除 11000(主线记录1)、12000(主线记录1.5)、13000(主线记录2)、14000(奏章总外壳) 及 40201~40501 空白地图容器
+        if wid >= 10000:
+            return None
         if 100 <= wid < 200:
             return "part1"
         if 200 <= wid < 300:
             return "part15"
-        if wid >= 40000 or "奏章" in clean_label or "Ordeal Call" in clean_label:
+        if 400 <= wid < 500 or "奏章" in clean_label or "Ordeal Call" in clean_label:
             return "ordeal_call"
-        if wid >= 300:
+        if 300 <= wid < 400:
             return "part2"
         return "part1"
 
@@ -78,12 +117,7 @@ def fmt_jst_date(ts: int) -> str:
 
 
 def download_category_banners():
-    """
-    Download 5 iconic official FGO chapter/event banner images (Mooncell 关卡配置 style)
-    locally to app/public/assets/story/ as compressed WebP for instant offline rendering.
-    """
     STORY_ASSETS_DIR.mkdir(parents=True, exist_ok=True)
-    # Use official Atlas Academy CN/JP war banners & iconic backgrounds
     banner_sources = {
         "part1": [
             "https://static.atlasacademy.io/CN/Back/back10400.png",
@@ -100,7 +134,6 @@ def download_category_banners():
         "ordeal_call": [
             "https://static.atlasacademy.io/CN/Back/back184300.png",
             "https://static.atlasacademy.io/CN/Back/back166700.png",
-            "https://static.atlasacademy.io/CN/Back/back155900.png",
         ],
         "event": [
             "https://static.atlasacademy.io/CN/Back/back134500.png",
@@ -111,16 +144,13 @@ def download_category_banners():
     for cat, urls in banner_sources.items():
         out_path = STORY_ASSETS_DIR / f"cat_{cat}.webp"
         if out_path.exists() and out_path.stat().st_size > 2000:
-            print(f"  banner {cat} already exists ({out_path.stat().st_size:,} bytes)", flush=True)
             continue
-        ok = False
         for u in urls:
             try:
                 raw = fetch_bytes(u, retries=2)
                 if len(raw) < 1000:
                     continue
                 im = Image.open(io.BytesIO(raw)).convert("RGB")
-                # 裁剪成宽屏横幅比例 (16:5) 贴合 Mooncell 关卡配置横幅风格
                 w, h = im.size
                 target_h = int(w * 0.36)
                 if h > target_h:
@@ -128,20 +158,43 @@ def download_category_banners():
                     im = im.crop((0, top, w, top + target_h))
                 im.thumbnail((720, 260))
                 im.save(out_path, "WEBP", quality=80)
-                print(f"  saved banner {out_path.name} ({out_path.stat().st_size:,} bytes) from {u}", flush=True)
-                ok = True
+                print(f"  saved category banner {out_path.name}", flush=True)
                 break
+            except Exception:
+                pass
+
+
+def download_main_war_banners(main_items: list[dict]):
+    """
+    Download all 31 main story chapter banners locally as crisp WebP with alpha channel
+    so they never suffer from remote network timeouts or wrong mappings.
+    """
+    WAR_BANNERS_DIR.mkdir(parents=True, exist_ok=True)
+    for item in main_items:
+        wid = item["id"]
+        remote_url = REAL_MAIN_BANNER_URL.get(
+            wid, f"https://static.atlasacademy.io/CN/Banner/questboard_cap{wid}.png"
+        )
+        local_rel = f"./assets/story/wars/war_{wid}.webp"
+        out_path = WAR_BANNERS_DIR / f"war_{wid}.webp"
+        if not (out_path.exists() and out_path.stat().st_size > 1000):
+            try:
+                raw = fetch_bytes(remote_url, retries=3)
+                im = Image.open(io.BytesIO(raw))
+                im.save(out_path, "WEBP", quality=88)
+                print(f"  saved war_{wid}.webp ({out_path.stat().st_size:,} bytes) <- {remote_url}", flush=True)
             except Exception as e:
-                print(f"  skip {u}: {e}", flush=True)
-        if not ok:
-            print(f"  WARNING: failed to download banner for {cat}", flush=True)
+                print(f"  WARN war_{wid}: {e}", flush=True)
+        if out_path.exists() and out_path.stat().st_size > 1000:
+            item["banner"] = local_rel
+        else:
+            item["banner"] = remote_url
 
 
 def main():
     APP_DATA_DIR.mkdir(parents=True, exist_ok=True)
     print("1) Fetching Atlas Academy CN basic_war.json ...", flush=True)
     wars = fetch_json("https://api.atlasacademy.io/export/CN/basic_war.json")
-    banner_map = {}
 
     print("2) Fetching Atlas Academy JP basic_event.json for JP release dates ...", flush=True)
     jp_events = fetch_json("https://api.atlasacademy.io/export/JP/basic_event.json")
@@ -151,7 +204,6 @@ def main():
         st = int(ev.get("startedAt", 0))
         if eid and st > 0:
             jp_event_start[eid] = st
-    print(f"   Loaded {len(jp_event_start)} JP event timestamps", flush=True)
 
     items = []
     for w in wars:
@@ -171,10 +223,10 @@ def main():
             continue
 
         start_jp_ts = jp_event_start.get(event_id, 0) if event_id > 0 else 0
-        banner_url = (
-            banner_map.get(wid)
-            or (w.get("banner") or "").strip()
-            or f"https://static.atlasacademy.io/CN/Banner/questboard_cap{wid}.png"
+        banner_url = REAL_MAIN_BANNER_URL.get(
+            wid,
+            (w.get("banner") or "").strip()
+            or (f"https://static.atlasacademy.io/CN/Banner/questboard_cap{wid}.png" if cat != "event" else ""),
         )
         items.append({
             "id": wid,
@@ -190,8 +242,11 @@ def main():
     main_items = [x for x in items if x["category"] != "event"]
     event_items = [x for x in items if x["category"] == "event"]
     main_items.sort(key=lambda x: x["id"])
-    # 活动按日服实装时间/id倒序排列
     event_items.sort(key=lambda x: (x["startJp"], x["id"]), reverse=True)
+
+    print("3) Downloading 5 category banners & 31 main story chapter banners ...", flush=True)
+    download_category_banners()
+    download_main_war_banners(main_items)
 
     payload = {
         "generatedAt": time.strftime("%Y-%m-%d %H:%M"),
@@ -204,15 +259,11 @@ def main():
     }
     out_file = APP_DATA_DIR / "story_wars.json"
     out_file.write_text(json.dumps(payload, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
-    matched_dates = sum(1 for x in event_items if x["startJpDate"])
     print(
-        f"3) Saved {out_file.name}: {len(main_items)} main + {len(event_items)} event wars "
-        f"({matched_dates}/{len(event_items)} with JP dates, {out_file.stat().st_size:,} bytes)",
+        f"4) Saved {out_file.name}: {len(main_items)} main + {len(event_items)} event wars "
+        f"({out_file.stat().st_size:,} bytes)",
         flush=True,
     )
-
-    print("4) Downloading 5 category banner images ...", flush=True)
-    download_category_banners()
 
 
 if __name__ == "__main__":
