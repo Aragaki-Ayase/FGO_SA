@@ -59,3 +59,78 @@
 2. **构建生产包或推送到 GitHub 自动打包 APK**：
    - 本地生产构建验证：`npm run build --prefix app`
    - 推送至 GitHub 触发云端 APK 打包：`git add . && git commit -m "Enhance sync, traits, bond tab, CE tags and back navigation" && git push origin main`
+
+---
+
+## 5. 本地 Android APK 打包记录（2026-11-19）
+
+- **前端同步**：运行 `npm.cmd --prefix app run android:sync`，完成 Vite 生产构建（`3.39s`）并将前端资源及 7,635 个离线图片同步至 `app/android/app/src/main/assets/public`。
+- **APK 编译**：使用本机 JDK 17（`C:\Users\Yu\.jdks\jbr-17.0.14`，兼容 Gradle 8.2.1）与 Android SDK（`C:\Users\Yu\AppData\Local\Android\Sdk`，含 `android-34`）执行 `.\gradlew.bat assembleDebug`，耗时 `1m 2s` 编译成功。
+- **产物路径**：`app/android/app/build/outputs/apk/debug/app-debug.apk`（大小 `141.88 MB`，已包含全量离线数据与压缩图片，可直接传输至安卓手机安装）。
+
+---
+
+## 6. 活动剧情时间修正与剧情完整图片增强（2026-11-19）
+
+- **活动时间来源修正与降序排序**：
+  - 原脚本 [collect_story_wars.py](file:///e:/work/FGO_SA/collect_story_wars.py) 与 [storyService.ts](file:///e:/work/FGO_SA/app/src/services/storyService.ts) 仅从日服 `JP/basic_event.json` 拉取时间，导致国服活动标题与日服时间错位约 1 年。
+  - 现已改为优先从国服 `CN/basic_event.json` 获取准确国服实装时间（`startCn` / `startCnDate`，UTC+8），国服已实装活动严格按 `startCn` 降序排列（最新在最上方，如 `2026-10-22 完结南瓜行星万圣节星球`），国服暂未实装的日服活动排在末尾并标注。
+  - 升级了 `STORY_DATA_VERSION` 与 `STORY_OVERRIDES_KEY`（`story_wars_overrides_v3`），自动替换旧版日期缓存。
+- **剧情图片完整补齐（参考 Atlas Academy DB）**：
+  - 扩展 [types.ts](file:///e:/work/FGO_SA/app/src/types.ts)、[storyService.ts](file:///e:/work/FGO_SA/app/src/services/storyService.ts)、[StoryHub.tsx](file:///e:/work/FGO_SA/app/src/components/StoryHub.tsx) 与 [styles.css](file:///e:/work/FGO_SA/app/src/styles.css)。
+  - 支持 `[enableFullScreen]` 宽屏高清背景（`back{id}_1344_626.png`，加载失败自动回退 `back{id}.png`）、`[sceneSet]`、`[imageSet]`/`[verticalImageSet]`/`[horizontalImageSet]`（取消对 `text`/`effect` 等有内容 CG 的误杀过滤）、`[equipSet]`（概念礼装/道具卡面）、`[charaSet]`/`[charaChange]`/`[charaCrossFade]` + 登场指令（角色立绘与名称角标）、`[pictureFrame]` 及行内 `[image]` 标记图，并支持点击任意剧情图片全屏放大预览。
+  - 新增 `SCRIPT_PARSER_VERSION = 2`，旧版缺少图片的 IndexedDB 缓存会自动重新拉取解析。
+- **验证与重新打包**：
+  - `python -X utf8 collect_story_wars.py` 成功更新 [story_wars.json](file:///e:/work/FGO_SA/app/public/data/story_wars.json)（31 主线 + 156 活动）。
+  - `tsc --noEmit` 0 错误通过，`npm.cmd --prefix app run android:sync` 与 `.\gradlew.bat assembleDebug`（`6s`）构建成功，最新 APK `app/android/app/build/outputs/apk/debug/app-debug.apk`（`142.34 MB`）。
+
+---
+
+## 7. 剧情章节重排、节号标注与 Atlas Academy 表情差分合成（2026-11-19）
+
+- **章节内剧情重新排序与节号标注**：
+  - 在 [storyService.ts](file:///e:/work/FGO_SA/app/src/services/storyService.ts) 的 `loadWarDetail` 中将 `spots` 下的全部剧情任务展平，改为按 `type === 'main'` 优先、`priority` 降序、`id` 升序排列，同任务内按 `phase` 升序排列。
+  - 解析 `chapterSubStr`、`chapterSubId` 及标题前缀，生成明确的 `chapterLabel`（如 `第1节`、`序章`、`后篇 · 第14节`、`断章／1`、`回顾关卡`），在 [StoryHub.tsx](file:///e:/work/FGO_SA/app/src/components/StoryHub.tsx) 的章节列表徽章与阅读器顶部同步显示；升级 `WAR_DETAIL_VERSION = 2` 自动刷新旧缓存。
+- **Atlas Academy 风格场景合成（隐藏底部表情网格，仅合成当前表情）**：
+  - 新增 [StorySceneCard.tsx](file:///e:/work/FGO_SA/app/src/components/StorySceneCard.tsx)，通过 `/raw/CN/svtScript?charaId={id}` 获取角色偏移与表情坐标，按 Atlas Academy `Scene.tsx` 算法将「背景图 + 裁切掉表情网格的人物主体 + 当前 `[charaFace]` 对应的单个表情差分」叠合渲染，底部附带 `[背景]` `[立绘]` 预览按钮。
+  - 升级 [storyService.ts](file:///e:/work/FGO_SA/app/src/services/storyService.ts) 的 `parseStoryScript`（`SCRIPT_PARSER_VERSION = 3`），追踪 `[charaFace]`/`[charaFaceFade]`/`[charaFilter]`/`[cameraFilter]`/`[charaFadeout]` 并在演出段合并输出合成场景块 `scene`，同时清洗说话人前的槽位前缀（如 `B：希翁?` → `希翁?`）。
+- **验证状态**：`tsc --noEmit` 0 错误通过，`npm.cmd --prefix app run build`（`3.80s`）构建成功；按用户要求**未打包 APK**，待确认网页端效果后再执行打包。
+
+---
+
+## 8. 安卓侧滑返回手势修复（2026-11-19）
+
+- **根因**：原 [MainActivity.java](file:///e:/work/FGO_SA/app/android/app/src/main/java/wiki/fgo/mooncell/offline/MainActivity.java) 通过 `webView.canGoBack()` 判断是否可返回，而前端 [backNavigation.ts](file:///e:/work/FGO_SA/app/src/utils/backNavigation.ts) 使用不改变 URL 的 `window.history.pushState(..., '')`，在 Android WebView 中 `canGoBack()` 常返回 `false`，导致侧滑直接退出 App。
+- **修复**：
+  - [backNavigation.ts](file:///e:/work/FGO_SA/app/src/utils/backNavigation.ts) 暴露全局桥接方法 `window.__fgoHandleAndroidBack()`，原生端不再操作 `history.pushState`/`history.back()`，直接基于 `activeLayers` 内存栈逐层关闭顶层页面/弹窗并返回 `'handled'` 或 `'exit'`（Web 浏览器端保留原 `popstate` + `Esc` 逻辑）。
+  - [MainActivity.java](file:///e:/work/FGO_SA/app/android/app/src/main/java/wiki/fgo/mooncell/offline/MainActivity.java) 在 `OnBackPressedCallback` 中通过 `webView.evaluateJavascript(...)` 直接调用 `window.__fgoHandleAndroidBack()`，仅当返回 `'exit'` 且无 WebView 历史时才退出 App。
+  - 优化 [StoryHub.tsx](file:///e:/work/FGO_SA/app/src/components/StoryHub.tsx) 阅读器与大图预览的 `useBackClose` 压栈顺序。
+- **验证状态**：`tsc --noEmit` 0 错误通过，`npm.cmd --prefix app run android:sync`（`5.31s`）与 `.\gradlew.bat assembleDebug`（`7s`）全部成功，最新 APK `app/android/app/build/outputs/apk/debug/app-debug.apk`（`142.34 MB`，`2026/11/19 21:19:59`），已包含章节重排/节号、Atlas Academy 表情差分合成与安卓侧滑返回修复。
+
+---
+
+## 9. 安卓顶部状态栏配色统一（方案 A，2026-11-19）
+
+- **改动**：
+  - [styles.xml](file:///e:/work/FGO_SA/app/android/app/src/main/res/values/styles.xml)：为 `AppTheme.NoActionBar` 与 `AppTheme.NoActionBarLaunch` 设置 `android:windowBackground`、`android:statusBarColor` 为 `#0f172a`，`android:windowTranslucentStatus` 为 `false`，`android:windowLightStatusBar` 为 `false`。
+  - [MainActivity.java](file:///e:/work/FGO_SA/app/android/app/src/main/java/wiki/fgo/mooncell/offline/MainActivity.java)：在 `onCreate`、`onResume`、`onWindowFocusChanged` 中统一调用 `applyDarkStatusBar()`，清除 `FLAG_TRANSLUCENT_STATUS` 半透明灰罩、关闭 `setStatusBarContrastEnforced(false)`，并将 `DecorView` 与 `android.R.id.content` 底色同步设为 `#0f172a` 以兼容 HyperOS / Android 15+。
+- **验证与打包**：`.\gradlew.bat assembleDebug`（`7s`）编译成功，最新 APK `app/android/app/build/outputs/apk/debug/app-debug.apk`（`142.69 MB`，`2026/11/19 21:44:37`）。
+
+---
+
+## 10. 剧情图片加载提速与本地持久化缓存（2026-11-19）
+
+- **改动**：
+  - [storyService.ts](file:///e:/work/FGO_SA/app/src/services/storyService.ts)：将 IndexedDB `atlas_story_cache_v1` 升级到版本 2，新增 `svt_scripts`（角色表情坐标持久化库）与 `image_cache`（剧情图片 Blob 持久化缓存池）；实现 `prefetchSvtScriptMetas` 整节批量拉取坐标、以及 `loadCachedStoryImage`（内存 ObjectURL + IndexedDB 持久化 + 并发去重）与缓存统计/清理接口。
+  - [StorySceneCard.tsx](file:///e:/work/FGO_SA/app/src/components/StorySceneCard.tsx)：引入 `IntersectionObserver` 视口懒加载（提前 500px 预热），移除重复的 `{id}.png` 尺寸探测大图下载（直接复用已缓存 `_merged.png` 自然宽度，立绘流量减半）；新增 `CachedStoryImg` 统一接管 `bg`/`cg`/`equip`/`chara`/`mark` 图片缓存与加载骨架占位。
+  - [StoryHub.tsx](file:///e:/work/FGO_SA/app/src/components/StoryHub.tsx) & [styles.css](file:///e:/work/FGO_SA/app/src/styles.css)：打开剧情时自动批量预拉取本节 `svtScript` 坐标；在剧情中心首页底部增加本地图片缓存数量与 MB 统计条及「清理图片缓存」入口，点击后弹出**二次确认弹窗**（不直接删除，且不清理剧情文本与阅读进度）。
+- **验证状态**：`tsc --noEmit` 0 错误通过，`npm.cmd --prefix app run build`（`3.85s`）构建成功；按用户要求**未打包 APK**，待确认后再打包。
+
+---
+
+## 11. 过滤剧情特效占位角色与屏幕外隐形立绘（2026-11-19）
+
+- **改动**：
+  - [storyService.ts](file:///e:/work/FGO_SA/app/src/services/storyService.ts)：新增 `isDummyChara`（过滤 `dummy` / `ダミー` / `エフェクト` / `特效用` / `演出用` 等占位角色及无名/特效用途的 `98115000`）与 `isOffscreenCoord`（过滤坐标 `|x| >= 1000` 或 `|y| >= 1000` 的屏幕外 `charaPut`/`charaPutFSR`/`charaFadein`），并过滤透明度 `<= 0.01` 的 `charaFadeTime`。
+  - 升级 `SCRIPT_PARSER_VERSION = 4`，重新打开章节时自动刷新旧缓存剔除占位立绘。
+- **验证状态**：`tsc --noEmit` 0 错误通过，`npm.cmd --prefix app run build`（`4.00s`）构建成功，`npm.cmd --prefix app run android:sync`（`5.75s`）与 `.\gradlew.bat assembleDebug`（`6s`）打包成功，最新 APK `app/android/app/build/outputs/apk/debug/app-debug.apk`（`141.99 MB`，`2026/11/19 22:23:54`）。

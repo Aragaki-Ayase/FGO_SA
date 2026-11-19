@@ -417,6 +417,8 @@ export interface StoryWarSummary {
   name: string;
   longName: string;
   banner: string;
+  startCn?: number;
+  startCnDate?: string;
   startJp?: number;
   startJpDate?: string;
 }
@@ -436,6 +438,8 @@ export interface StoryScriptEntry {
   scriptUrl: string;
   spotName: string;
   questName: string;
+  chapterLabel?: string;
+  questType?: string;
   phase: number;
   partLabel: string;
 }
@@ -446,11 +450,40 @@ export interface StoryWarDetail {
   longName: string;
   entries: StoryScriptEntry[];
   fetchedAt: string;
+  detailVersion?: number;
+}
+
+export interface SvtScriptMeta {
+  id: number;
+  faceX: number;
+  faceY: number;
+  offsetX: number;
+  offsetY: number;
+  scale?: number;
+  extendData?: {
+    faceSize?: number;
+    faceSizeRect?: [number, number];
+  };
 }
 
 export type StoryBlock =
-  | { type: 'bg'; url: string; id: string }
+  | { type: 'bg'; url: string; fallbackUrl?: string; id: string; fullScreen?: boolean }
+  | {
+      type: 'scene';
+      bgUrl?: string;
+      bgFallbackUrl?: string;
+      charaId: string;
+      figureUrl: string;
+      face: number;
+      name: string;
+      fullScreen?: boolean;
+      silhouette?: boolean;
+      cameraFilter?: string;
+    }
   | { type: 'cg'; url: string; name: string }
+  | { type: 'equip'; url: string; equipId: string }
+  | { type: 'chara'; url: string; charaId: string; name: string }
+  | { type: 'mark'; url: string; name: string }
   | { type: 'narration'; text: string }
   | { type: 'dialogue'; speaker: string; text: string }
   | { type: 'choices'; options: { index: string; text: string }[] };
@@ -459,6 +492,7 @@ export interface ParsedStoryScript {
   scriptId: string;
   blocks: StoryBlock[];
   fetchedAt: string;
+  parserVersion?: number;
 }
 
 export interface WarReadProgress {

@@ -16,6 +16,7 @@ ROOT = Path(__file__).resolve().parent
 APP_DATA_DIR = ROOT / "app" / "public" / "data"
 STORY_ASSETS_DIR = ROOT / "app" / "public" / "assets" / "story"
 WAR_BANNERS_DIR = STORY_ASSETS_DIR / "wars"
+CST = timezone(timedelta(hours=8))
 JST = timezone(timedelta(hours=9))
 
 # Verified real banner filenames from /nice/CN/war/{id} (where warId != capId)
@@ -110,6 +111,12 @@ def classify_war(w: dict) -> str | None:
     return None
 
 
+def fmt_cst_date(ts: int) -> str:
+    if not ts or ts <= 0:
+        return ""
+    return datetime.fromtimestamp(ts, tz=CST).strftime("%Y-%m-%d")
+
+
 def fmt_jst_date(ts: int) -> str:
     if not ts or ts <= 0:
         return ""
@@ -196,8 +203,15 @@ def main():
     print("1) Fetching Atlas Academy CN basic_war.json ...", flush=True)
     wars = fetch_json("https://api.atlasacademy.io/export/CN/basic_war.json")
 
-    print("2) Fetching Atlas Academy JP basic_event.json for JP release dates ...", flush=True)
+    print("2) Fetching Atlas Academy CN & JP basic_event.json for release dates ...", flush=True)
+    cn_events = fetch_json("https://api.atlasacademy.io/export/CN/basic_event.json")
     jp_events = fetch_json("https://api.atlasacademy.io/export/JP/basic_event.json")
+    cn_event_start = {}
+    for ev in cn_events or []:
+        eid = int(ev.get("id", 0))
+        st = int(ev.get("startedAt", 0))
+        if eid and st > 0:
+            cn_event_start[eid] = st
     jp_event_start = {}
     for ev in jp_events or []:
         eid = int(ev.get("id", 0))
@@ -222,6 +236,7 @@ def main():
         if not title:
             continue
 
+        start_cn_ts = cn_event_start.get(event_id, 0) if event_id > 0 else 0
         start_jp_ts = jp_event_start.get(event_id, 0) if event_id > 0 else 0
         banner_url = REAL_MAIN_BANNER_URL.get(
             wid,
@@ -235,6 +250,8 @@ def main():
             "name": name or title,
             "longName": title,
             "banner": banner_url,
+            "startCn": start_cn_ts,
+            "startCnDate": fmt_cst_date(start_cn_ts),
             "startJp": start_jp_ts,
             "startJpDate": fmt_jst_date(start_jp_ts),
         })
@@ -242,7 +259,11 @@ def main():
     main_items = [x for x in items if x["category"] != "event"]
     event_items = [x for x in items if x["category"] == "event"]
     main_items.sort(key=lambda x: x["id"])
-    event_items.sort(key=lambda x: (x["startJp"], x["id"]), reverse=True)
+    # 国服已实装活动优先按国服开启时间降序排列（最新在最上方）；国服暂未实装的日服活动排在末尾按日服时间降序
+    event_items.sort(
+        key=lambda x: (1 if x["startCn"] > 0 else 0, x["startCn"], x["startJp"], x["id"]),
+        reverse=True,
+    )
 
     print("3) Downloading 5 category banners & 31 main story chapter banners ...", flush=True)
     download_category_banners()

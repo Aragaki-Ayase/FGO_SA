@@ -16,6 +16,7 @@ import {
   Clock,
   Play,
   AlertCircle,
+  Trash2,
 } from 'lucide-react';
 import {
   StoryWarCategory,
@@ -33,9 +34,13 @@ import {
   resolveStoryImageUrl,
   getAllWarProgress,
   saveWarProgress,
+  prefetchSvtScriptMetas,
+  getStoryImageCacheStats,
+  clearStoryImageCache,
 } from '../services/storyService';
 import { useBackClose } from '../utils/backNavigation';
 import { BackToTopButton } from './BackToTopButton';
+import { StorySceneCard, CachedStoryImg } from './StorySceneCard';
 
 interface StoryHubProps {
   wars: StoryWarSummary[];
@@ -136,11 +141,13 @@ const StoryReaderModal: React.FC<StoryReaderModalProps> = ({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [showImages, setShowImages] = useState(true);
+  const [previewImg, setPreviewImg] = useState<{ url: string; caption?: string } | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const restoredScrollForRef = useRef<string>('');
   const saveTimerRef = useRef<number | null>(null);
 
   useBackClose(true, onClose);
+  useBackClose(Boolean(previewImg), () => setPreviewImg(null));
 
   const fetchScript = useCallback(
     async (force = false) => {
@@ -151,6 +158,13 @@ const StoryReaderModal: React.FC<StoryReaderModalProps> = ({
         const data = await loadStoryScript(entry.scriptId, entry.scriptUrl, force);
         setScriptData(data);
         onScriptCached(entry.scriptId);
+        // 一次性批量预拉取本节所有登场角色的 svtScript 坐标（已持久化到 IndexedDB）
+        const charaIds = data.blocks
+          .filter((b): b is Extract<typeof b, { type: 'scene' }> => b.type === 'scene')
+          .map((b) => b.charaId);
+        if (charaIds.length > 0) {
+          void prefetchSvtScriptMetas(charaIds);
+        }
       } catch (err: any) {
         setError(err?.message || '剧情脚本加载失败，请检查网络后重试');
       } finally {
@@ -215,9 +229,12 @@ const StoryReaderModal: React.FC<StoryReaderModalProps> = ({
         <div className="story-page-title-box">
           <div className="story-page-meta-row">
             <span className="story-page-step">
-              第 {entryIndex + 1} / {entries.length} 节
+              {entry.chapterLabel || `第 ${entryIndex + 1} 节`}
             </span>
             {entry.partLabel && <span className="story-page-part">{entry.partLabel}</span>}
+            <span className="story-page-seq">
+              ({entryIndex + 1} / {entries.length})
+            </span>
           </div>
           <h2 className="story-page-title">{entry.questName}</h2>
           <div className="story-page-sub">
@@ -270,36 +287,91 @@ const StoryReaderModal: React.FC<StoryReaderModalProps> = ({
           ) : (
             <div className="story-blocks-list">
               {scriptData.blocks.map((blk, i) => {
+                if (blk.type === 'scene') {
+                  if (!showImages) return null;
+                  return (
+                    <StorySceneCard
+                      key={`scn-${i}`}
+                      bgUrl={blk.bgUrl}
+                      bgFallbackUrl={blk.bgFallbackUrl}
+                      charaId={blk.charaId}
+                      figureUrl={blk.figureUrl}
+                      face={blk.face}
+                      name={blk.name}
+                      fullScreen={blk.fullScreen}
+                      silhouette={blk.silhouette}
+                      cameraFilter={blk.cameraFilter}
+                      onPreview={(url, caption) => setPreviewImg({ url, caption })}
+                    />
+                  );
+                }
                 if (blk.type === 'bg') {
                   if (!showImages) return null;
                   return (
-                    <div key={`bg-${i}`} className="story-scene-card">
-                      <img
-                        src={resolveStoryImageUrl(blk.url)}
-                        alt="剧情场景"
-                        loading="lazy"
-                        onError={(e) => {
-                          const parent = (e.target as HTMLImageElement).parentElement;
-                          if (parent) parent.style.display = 'none';
-                        }}
-                      />
-                    </div>
+                    <CachedStoryImg
+                      key={`bg-${i}`}
+                      url={blk.url}
+                      fallbackUrl={blk.fallbackUrl}
+                      alt="剧情场景"
+                      className="story-scene-card"
+                      onClick={(resolvedUrl) =>
+                        setPreviewImg({ url: resolvedUrl, caption: '剧情场景' })
+                      }
+                    />
                   );
                 }
                 if (blk.type === 'cg') {
                   if (!showImages) return null;
                   return (
-                    <div key={`cg-${i}`} className="story-cg-card">
-                      <img
-                        src={resolveStoryImageUrl(blk.url)}
-                        alt="剧情插图"
-                        loading="lazy"
-                        onError={(e) => {
-                          const parent = (e.target as HTMLImageElement).parentElement;
-                          if (parent) parent.style.display = 'none';
-                        }}
+                    <CachedStoryImg
+                      key={`cg-${i}`}
+                      url={blk.url}
+                      alt={blk.name || '剧情插图'}
+                      className="story-cg-card"
+                      onClick={(resolvedUrl) =>
+                        setPreviewImg({ url: resolvedUrl, caption: '剧情插图' })
+                      }
+                    />
+                  );
+                }
+                if (blk.type === 'equip') {
+                  if (!showImages) return null;
+                  return (
+                    <CachedStoryImg
+                      key={`eq-${i}`}
+                      url={blk.url}
+                      alt="剧情礼装/道具"
+                      className="story-equip-card"
+                      onClick={(resolvedUrl) =>
+                        setPreviewImg({ url: resolvedUrl, caption: '剧情道具 / 礼装' })
+                      }
+                    />
+                  );
+                }
+                if (blk.type === 'chara') {
+                  if (!showImages) return null;
+                  return (
+                    <div key={`chf-${i}`} className="story-chara-card">
+                      <CachedStoryImg
+                        url={blk.url}
+                        alt={blk.name || '角色立绘'}
+                        onClick={(resolvedUrl) =>
+                          setPreviewImg({ url: resolvedUrl, caption: blk.name || '角色立绘' })
+                        }
                       />
+                      {blk.name && <span className="story-chara-caption">{blk.name}</span>}
                     </div>
+                  );
+                }
+                if (blk.type === 'mark') {
+                  if (!showImages) return null;
+                  return (
+                    <CachedStoryImg
+                      key={`mk-${i}`}
+                      url={blk.url}
+                      alt={blk.name || '剧情标记'}
+                      className="story-mark-card"
+                    />
                   );
                 }
                 if (blk.type === 'narration') {
@@ -362,6 +434,20 @@ const StoryReaderModal: React.FC<StoryReaderModalProps> = ({
         </footer>
 
         <BackToTopButton targetRef={scrollRef} variant="drawer" />
+
+        {previewImg && (
+          <div
+            className="story-img-preview-backdrop"
+            onClick={() => setPreviewImg(null)}
+            role="dialog"
+            aria-label="剧情图片放大预览"
+          >
+            <img src={previewImg.url} alt={previewImg.caption || '剧情图片'} />
+            {previewImg.caption && (
+              <div className="story-img-preview-caption">{previewImg.caption} · 点击任意处关闭</div>
+            )}
+          </div>
+        )}
     </div>
   );
 };
@@ -377,6 +463,14 @@ const StoryWarBannerCard: React.FC<{
   const [imgFailed, setImgFailed] = useState(false);
   const bannerUrl = war.banner ? resolveStoryImageUrl(war.banner) : '';
   const showBanner = Boolean(bannerUrl) && !imgFailed;
+  const eventDateLabel =
+    war.category === 'event'
+      ? war.startCnDate
+        ? `国服实装：${war.startCnDate}`
+        : war.startJpDate
+          ? `日服实装：${war.startJpDate}（国服暂未实装）`
+          : ''
+      : '';
 
   if (!showBanner) {
     return (
@@ -384,14 +478,12 @@ const StoryWarBannerCard: React.FC<{
         <span className="quest-option-index">{index + 1}</span>
         <div className="quest-option-text">
           <strong>{war.longName}</strong>
-          {war.category === 'event' && war.startJpDate && (
-            <small className="story-jp-date-hint">日服实装：{war.startJpDate}</small>
-          )}
+          {eventDateLabel && <small className="story-jp-date-hint">{eventDateLabel}</small>}
           {progress ? (
             <small className="story-prog-hint">
               已读 {progress.readScriptIds.length} 节 · 上次看到：{progress.lastTitle}
             </small>
-          ) : war.category !== 'event' || !war.startJpDate ? (
+          ) : !eventDateLabel ? (
             <small>{war.category === 'event' ? '活动剧情' : '主线剧情'}</small>
           ) : null}
         </div>
@@ -415,9 +507,7 @@ const StoryWarBannerCard: React.FC<{
         <div className="story-war-banner-meta-text">
           <strong>{war.longName}</strong>
           <div className="story-war-banner-subrow">
-            {war.category === 'event' && war.startJpDate && (
-              <span className="story-jp-date-hint">日服实装：{war.startJpDate}</span>
-            )}
+            {eventDateLabel && <span className="story-jp-date-hint">{eventDateLabel}</span>}
             {progress && (
               <span className="story-prog-hint">
                 已读 {progress.readScriptIds.length} 节 · 上次看到：{progress.lastTitle}
@@ -484,9 +574,41 @@ export const StoryHub: React.FC<StoryHubProps> = ({
     total: number;
   }>({ running: false, done: 0, total: 0 });
 
+  // 剧情图片本地持久化缓存统计与二次确认清理弹窗
+  const [imgCacheStats, setImgCacheStats] = useState<{ count: number; totalBytes: number }>({
+    count: 0,
+    totalBytes: 0,
+  });
+  const [confirmClearImgCache, setConfirmClearImgCache] = useState(false);
+  const [clearingImgCache, setClearingImgCache] = useState(false);
+
+  const refreshImgCacheStats = useCallback(() => {
+    getStoryImageCacheStats().then(setImgCacheStats);
+  }, []);
+
   useEffect(() => {
     getCachedScriptIdSet().then(setCachedIds);
-  }, []);
+    refreshImgCacheStats();
+  }, [refreshImgCacheStats]);
+
+  // 从章节或分类返回首页时顺手刷新本地图片缓存占用统计
+  useEffect(() => {
+    if (!selectedCat && !selectedWar) {
+      refreshImgCacheStats();
+    }
+  }, [selectedCat, selectedWar, refreshImgCacheStats]);
+
+  const handleConfirmClearImgCache = async () => {
+    if (clearingImgCache) return;
+    setClearingImgCache(true);
+    try {
+      await clearStoryImageCache();
+      setImgCacheStats({ count: 0, totalBytes: 0 });
+      setConfirmClearImgCache(false);
+    } finally {
+      setClearingImgCache(false);
+    }
+  };
 
   // 分层返回导航：阅读器 -> 续看弹窗 -> 章节目录 -> 分类列表 -> 首页
   const closeWarDetail = useCallback(() => {
@@ -505,6 +627,7 @@ export const StoryHub: React.FC<StoryHubProps> = ({
   useBackClose(Boolean(selectedCat && !selectedWar), closeCategory);
   useBackClose(Boolean(selectedWar && !readerState && !resumePrompt), closeWarDetail);
   useBackClose(Boolean(resumePrompt), () => setResumePrompt(null));
+  useBackClose(confirmClearImgCache, () => setConfirmClearImgCache(false));
 
   const fetchWar = useCallback(async (war: StoryWarSummary, force = false) => {
     setDetailLoading(true);
@@ -763,7 +886,12 @@ export const StoryHub: React.FC<StoryHubProps> = ({
                 >
                   <span className="quest-option-index">{idx + 1}</span>
                   <div className="quest-option-text">
-                    <strong>{entry.questName}</strong>
+                    <div className="story-entry-title-row">
+                      {entry.chapterLabel && (
+                        <span className="story-chapter-tag">{entry.chapterLabel}</span>
+                      )}
+                      <strong>{entry.questName}</strong>
+                    </div>
                     <small>
                       {entry.spotName}
                       {entry.partLabel ? ` · ${entry.partLabel}` : ''}
@@ -944,10 +1072,68 @@ export const StoryHub: React.FC<StoryHubProps> = ({
         ))}
       </div>
 
+      <div className="story-cache-bar">
+        <div className="story-cache-info">
+          <ImageIcon size={14} />
+          <span>
+            剧情图片本地缓存：{imgCacheStats.count} 张（
+            {(imgCacheStats.totalBytes / (1024 * 1024)).toFixed(1)} MB）
+          </span>
+        </div>
+        <button
+          type="button"
+          className="story-cache-clear-btn"
+          disabled={imgCacheStats.count === 0}
+          onClick={() => setConfirmClearImgCache(true)}
+        >
+          <Trash2 size={13} />
+          <span>清理图片缓存</span>
+        </button>
+      </div>
+
       <div className="story-hub-foot-note">
         <BookOpen size={14} />
-        <span>中文剧情数据来自 Atlas Academy CN，读过的章节自动离线缓存并记忆进度</span>
+        <span>中文剧情数据来自 Atlas Academy CN，读过的章节与图片自动离线缓存并记忆进度</span>
       </div>
+
+      {/* 清理剧情图片缓存二次确认弹窗 */}
+      {confirmClearImgCache && (
+        <div
+          className="modal-backdrop story-resume-backdrop"
+          onClick={() => !clearingImgCache && setConfirmClearImgCache(false)}
+        >
+          <div className="story-resume-dialog" onClick={(e) => e.stopPropagation()}>
+            <div className="story-resume-icon story-danger-icon">
+              <Trash2 size={22} />
+            </div>
+            <h4>确认清理剧情图片缓存？</h4>
+            <p className="story-resume-desc">
+              当前已缓存 <strong>{imgCacheStats.count}</strong> 张剧情图片（约{' '}
+              <strong>{(imgCacheStats.totalBytes / (1024 * 1024)).toFixed(1)} MB</strong>）。
+              <br />
+              清理后再次查看剧情背景与立绘需重新联网加载，<strong>不会</strong>删除已缓存的剧情文本和阅读进度。
+            </p>
+            <div className="story-resume-actions">
+              <button
+                type="button"
+                className="btn-secondary-sm"
+                disabled={clearingImgCache}
+                onClick={() => setConfirmClearImgCache(false)}
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                className="story-danger-confirm-btn"
+                disabled={clearingImgCache}
+                onClick={handleConfirmClearImgCache}
+              >
+                {clearingImgCache ? '清理中...' : '确认清理'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
