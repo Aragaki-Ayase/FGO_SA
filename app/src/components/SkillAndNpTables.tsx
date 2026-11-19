@@ -1,6 +1,28 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { ActiveSkillSlot, NpVariant, ClassSkill, AppendSkill } from '../types';
 import { SmartImage } from './SmartImage';
+
+/**
+ * 优先定位最高次数的「强化后」变体索引（如存在 强化后2 则优先于 强化后；
+ * 同为强化后且含多卡色/多阶段时优先选第一个强化后变体）；无强化项时默认返回 0。
+ */
+function getDefaultVariantIndex(variants: Array<{ tabLabel?: string }>): number {
+  if (!variants || variants.length <= 1) return 0;
+  let bestIdx = 0;
+  let bestLevel = 0;
+  for (let i = 0; i < variants.length; i++) {
+    const label = variants[i].tabLabel || '';
+    const match = label.match(/强化后(\d*)/);
+    if (match) {
+      const level = match[1] ? parseInt(match[1], 10) : 1;
+      if (level > bestLevel) {
+        bestLevel = level;
+        bestIdx = i;
+      }
+    }
+  }
+  return bestIdx;
+}
 
 /**
  * Render effect text containing ⟪特攻:...⟫ tokens with blue dashed underline (matching 图4).
@@ -38,8 +60,13 @@ export const FormattedEffectText: React.FC<{ text: string; showTargetIcon?: bool
  * 图3样式：持有技能卡片（支持多阶段/强化前后同处切换、8→7→6 红字充能、Lv.6/Lv.10 标红表格）
  */
 export const ActiveSkillCard: React.FC<{ slot: ActiveSkillSlot }> = ({ slot }) => {
-  const [activeIdx, setActiveIdx] = useState(0);
   const variants = slot.variants;
+  const [activeIdx, setActiveIdx] = useState(() => getDefaultVariantIndex(variants));
+
+  useEffect(() => {
+    setActiveIdx(getDefaultVariantIndex(variants));
+  }, [variants]);
+
   if (!variants || variants.length === 0) return null;
 
   const safeIdx = Math.min(activeIdx, variants.length - 1);
@@ -133,7 +160,12 @@ export const ActiveSkillCard: React.FC<{ slot: ActiveSkillSlot }> = ({ slot }) =
  * 图4样式：宝具卡片（支持多阶段/强化前后同处切换、红蓝绿斜格纹横幅、立体金字、特攻虚线下划线与5级数值表）
  */
 export const NoblePhantasmCard: React.FC<{ variants: NpVariant[] }> = ({ variants }) => {
-  const [activeIdx, setActiveIdx] = useState(0);
+  const [activeIdx, setActiveIdx] = useState(() => getDefaultVariantIndex(variants));
+
+  useEffect(() => {
+    setActiveIdx(getDefaultVariantIndex(variants));
+  }, [variants]);
+
   if (!variants || variants.length === 0) {
     return <div className="mc-empty-hint">该从者暂无宝具数据</div>;
   }

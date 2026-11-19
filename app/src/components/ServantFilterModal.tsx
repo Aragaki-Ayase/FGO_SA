@@ -1,7 +1,8 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import { X, RotateCcw, Search, Filter, CheckSquare, Users } from 'lucide-react';
 import { ServantFilterState, ServantSummary, TraitGroup } from '../types';
 import { SmartImage } from './SmartImage';
+import { BackToTopButton } from './BackToTopButton';
 import { useBackClose } from '../utils/backNavigation';
 
 interface ServantFilterModalProps {
@@ -92,6 +93,7 @@ export const ServantFilterModal: React.FC<ServantFilterModalProps> = ({
   onSelectServant,
 }) => {
   const [traitSearch, setTraitSearch] = useState('');
+  const scrollRef = useRef<HTMLDivElement | null>(null);
 
   useBackClose(open, onClose);
 
@@ -139,7 +141,7 @@ export const ServantFilterModal: React.FC<ServantFilterModalProps> = ({
           </div>
         </div>
 
-        <div className="filter-drawer-body">
+        <div className="filter-drawer-body" ref={scrollRef}>
           {/* 1. 星级 */}
           <section className="filter-section">
             <div className="filter-sec-header">
@@ -485,6 +487,8 @@ export const ServantFilterModal: React.FC<ServantFilterModalProps> = ({
             </div>
           </section>
         </div>
+
+        <BackToTopButton targetRef={scrollRef} variant="drawer" />
 
         <div className="filter-drawer-footer">
           <button type="button" className="btn-primary-full" onClick={onClose}>

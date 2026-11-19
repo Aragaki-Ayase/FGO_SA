@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   X,
   Maximize2,
@@ -10,6 +10,11 @@ import {
   Volume2,
   ExternalLink,
   Heart,
+  Play,
+  Square,
+  Loader2,
+  Download,
+  Check,
 } from 'lucide-react';
 import { ServantDetail, MaterialStage } from '../types';
 import { SmartImage } from './SmartImage';
@@ -20,7 +25,15 @@ import {
   FormattedEffectText,
 } from './SkillAndNpTables';
 import { CardLightbox } from './CardLightbox';
+import { BackToTopButton } from './BackToTopButton';
 import { useBackClose } from '../utils/backNavigation';
+import {
+  subscribeVoicePlayer,
+  togglePlayVoice,
+  stopVoice,
+  getCachedVoiceUrls,
+  cacheServantVoices,
+} from '../services/voicePlayer';
 
 interface ServantDetailModalProps {
   servant: ServantDetail | null;
@@ -28,6 +41,7 @@ interface ServantDetailModalProps {
   onClose: () => void;
   onSelectTrait: (trait: string) => void;
   onOpenBondCe: (ceId: number) => void;
+  onOpenItemByName?: (name: string) => void;
 }
 
 const DREAMFIRE_POINTS = [1090000, 1230000, 1360000, 1500000, 1640000];
@@ -50,10 +64,11 @@ function getBondLevelReward(lv: number, rarity: number, hasBondCe: boolean): str
   return '圣晶石 ×30 · 从者硬币 ×20';
 }
 
-const MaterialTable: React.FC<{ title: string; stages: MaterialStage[] }> = ({
-  title,
-  stages,
-}) => {
+const MaterialTable: React.FC<{
+  title: string;
+  stages: MaterialStage[];
+  onOpenItemByName?: (name: string) => void;
+}> = ({ title, stages, onOpenItemByName }) => {
   if (!stages || stages.length === 0) return null;
   return (
     <div className="mc-mat-section">
@@ -67,7 +82,13 @@ const MaterialTable: React.FC<{ title: string; stages: MaterialStage[] }> = ({
             <div className="mc-mat-stage">{st.stage}</div>
             <div className="mc-mat-items">
               {st.items.map((item, i) => (
-                <div key={i} className="mc-mat-chip" title={item.name}>
+                <button
+                  key={i}
+                  type="button"
+                  className="mc-mat-chip mat-clickable"
+                  title={`点击查看「${item.name}」的掉落关卡效率`}
+                  onClick={() => onOpenItemByName && onOpenItemByName(item.name)}
+                >
                   <div className="mc-mat-icon-wrap">
                     <SmartImage
                       localSrc={item.iconLocal}
@@ -78,7 +99,7 @@ const MaterialTable: React.FC<{ title: string; stages: MaterialStage[] }> = ({
                     <span className="mc-mat-count">×{item.count}</span>
                   </div>
                   <span className="mc-mat-name">{item.name}</span>
-                </div>
+                </button>
               ))}
             </div>
           </div>
@@ -94,20 +115,84 @@ export const ServantDetailModal: React.FC<ServantDetailModalProps> = ({
   onClose,
   onSelectTrait,
   onOpenBondCe,
+  onOpenItemByName,
 }) => {
   const [activeTab, setActiveTab] = useState<'combat' | 'stats' | 'bond' | 'materials' | 'lore'>('combat');
+  const scrollRef = useRef<HTMLDivElement | null>(null);
   const [artIdx, setArtIdx] = useState(0);
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [showJpLore, setShowJpLore] = useState(false);
   const [activeVoiceSec, setActiveVoiceSec] = useState(0);
+  const [playingVoiceUrl, setPlayingVoiceUrl] = useState<string | null>(null);
+  const [loadingVoiceUrl, setLoadingVoiceUrl] = useState<string | null>(null);
+  const [voiceError, setVoiceError] = useState<string>('');
+  const [cachedUrls, setCachedUrls] = useState<Set<string>>(new Set());
+  const [cachingState, setCachingState] = useState<{ running: boolean; done: number; total: number }>({
+    running: false,
+    done: 0,
+    total: 0,
+  });
 
   useBackClose(Boolean(servant || loading), onClose);
 
   useEffect(() => {
+    const unsub = subscribeVoicePlayer((pUrl, lUrl, err) => {
+      setPlayingVoiceUrl(pUrl);
+      setLoadingVoiceUrl(lUrl);
+      if (err) setVoiceError(err);
+      else if (pUrl || lUrl) setVoiceError('');
+    });
+    return () => {
+      unsub();
+      stopVoice();
+    };
+  }, []);
+
+  const allVoiceUrls = useMemo(() => {
+    if (!servant) return [];
+    const urls: string[] = [];
+    for (const sec of servant.voices) {
+      for (const it of sec.items) {
+        if (it.audioUrl) urls.push(it.audioUrl);
+      }
+    }
+    return Array.from(new Set(urls));
+  }, [servant]);
+
+  useEffect(() => {
+    stopVoice();
     setActiveTab('combat');
     setArtIdx(0);
     setActiveVoiceSec(0);
-  }, [servant?.id]);
+    setVoiceError('');
+    setCachingState({ running: false, done: 0, total: 0 });
+    if (allVoiceUrls.length > 0) {
+      getCachedVoiceUrls(allVoiceUrls).then(setCachedUrls);
+    } else {
+      setCachedUrls(new Set());
+    }
+  }, [servant?.id, allVoiceUrls]);
+
+  const handlePlayVoice = async (url: string) => {
+    await togglePlayVoice(url);
+    // Refresh cached state shortly after playback starts (background cache completes)
+    window.setTimeout(() => {
+      if (allVoiceUrls.length > 0) {
+        getCachedVoiceUrls(allVoiceUrls).then(setCachedUrls);
+      }
+    }, 1500);
+  };
+
+  const handleCacheAllVoices = async () => {
+    if (cachingState.running || allVoiceUrls.length === 0) return;
+    setCachingState({ running: true, done: 0, total: allVoiceUrls.length });
+    await cacheServantVoices(allVoiceUrls, (done, total) => {
+      setCachingState({ running: done < total, done, total });
+    });
+    const updated = await getCachedVoiceUrls(allVoiceUrls);
+    setCachedUrls(updated);
+    setCachingState({ running: false, done: allVoiceUrls.length, total: allVoiceUrls.length });
+  };
 
   // Compute full Lv.1 ~ Lv.15 bond table rows
   const bondRows = useMemo(() => {
@@ -180,7 +265,7 @@ export const ServantDetailModal: React.FC<ServantDetailModalProps> = ({
               </button>
             </header>
 
-            <div className="detail-scroll-body">
+            <div className="detail-scroll-body" ref={scrollRef}>
               {/* Top Hero: Card Art Gallery + Quick Summary */}
               <div className="detail-hero-grid">
                 <div className="detail-art-box">
@@ -586,16 +671,41 @@ export const ServantDetailModal: React.FC<ServantDetailModalProps> = ({
                   {bondVoiceItems.length > 0 && (
                     <div style={{ marginTop: 22 }}>
                       <h3 className="pane-section-title">牵绊等级专属语音</h3>
+                      {voiceError && <div className="voice-error-banner">{voiceError}</div>}
                       <div className="voice-table">
-                        {bondVoiceItems.map((item, idx) => (
-                          <div key={idx} className="voice-row">
-                            <div className="voice-row-title">{item.title}</div>
-                            <div className="voice-row-content">
-                              <div className="voice-cn">{item.textCn}</div>
-                              {item.textJp && <div className="voice-jp">{item.textJp}</div>}
+                        {bondVoiceItems.map((item, idx) => {
+                          const isPlaying = Boolean(item.audioUrl && playingVoiceUrl === item.audioUrl);
+                          const isLoading = Boolean(item.audioUrl && loadingVoiceUrl === item.audioUrl);
+                          const isCached = Boolean(item.audioUrl && cachedUrls.has(item.audioUrl));
+                          return (
+                            <div key={idx} className={`voice-row ${isPlaying ? 'voice-row-playing' : ''}`}>
+                              <div className="voice-row-title">
+                                <span>{item.title}</span>
+                                {item.audioUrl && (
+                                  <button
+                                    type="button"
+                                    className={`voice-play-btn ${isPlaying ? 'playing' : ''} ${isCached ? 'cached' : ''}`}
+                                    onClick={() => handlePlayVoice(item.audioUrl!)}
+                                    title={isPlaying ? '停止播放' : isCached ? '播放（已离线缓存）' : '在线播放并缓存'}
+                                  >
+                                    {isLoading ? (
+                                      <Loader2 size={13} className="spin-icon" />
+                                    ) : isPlaying ? (
+                                      <Square size={12} fill="currentColor" />
+                                    ) : (
+                                      <Play size={13} fill="currentColor" />
+                                    )}
+                                    <span>{isPlaying ? '停止' : '播放'}</span>
+                                  </button>
+                                )}
+                              </div>
+                              <div className="voice-row-content">
+                                <div className="voice-cn">{item.textCn}</div>
+                                {item.textJp && <div className="voice-jp">{item.textJp}</div>}
+                              </div>
                             </div>
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     </div>
                   )}
@@ -612,16 +722,19 @@ export const ServantDetailModal: React.FC<ServantDetailModalProps> = ({
                   ) : (
                     <>
                       <MaterialTable
-                        title="灵基再临（从者进化）素材"
+                        title="灵基再临（从者进化）素材（点击素材查掉落）"
                         stages={servant.materials.ascension}
+                        onOpenItemByName={onOpenItemByName}
                       />
                       <MaterialTable
                         title="持有技能强化素材（单技能 Lv.1 → Lv.10）"
                         stages={servant.materials.skill}
+                        onOpenItemByName={onOpenItemByName}
                       />
                       <MaterialTable
                         title="追加技能强化素材（单技能 Lv.1 → Lv.10）"
                         stages={servant.materials.appendSkill}
+                        onOpenItemByName={onOpenItemByName}
                       />
                     </>
                   )}
@@ -660,10 +773,45 @@ export const ServantDetailModal: React.FC<ServantDetailModalProps> = ({
 
                   {servant.voices.length > 0 && (
                     <div style={{ marginTop: 24 }}>
-                      <h3 className="pane-section-title">
-                        <Volume2 size={16} style={{ verticalAlign: 'middle', marginRight: 6 }} />
-                        语音文本一览
-                      </h3>
+                      <div className="lore-header-row" style={{ flexWrap: 'wrap', gap: 8 }}>
+                        <h3 className="pane-section-title" style={{ margin: 0 }}>
+                          <Volume2 size={16} style={{ verticalAlign: 'middle', marginRight: 6 }} />
+                          语音与音频一览
+                        </h3>
+                        {allVoiceUrls.length > 0 && (
+                          <button
+                            type="button"
+                            className={`voice-cache-all-btn ${
+                              cachedUrls.size >= allVoiceUrls.length ? 'done' : ''
+                            }`}
+                            onClick={handleCacheAllVoices}
+                            disabled={cachingState.running}
+                            title="将本从者的全部语音缓存到设备本地，之后断网也可离线播放"
+                          >
+                            {cachingState.running ? (
+                              <>
+                                <Loader2 size={13} className="spin-icon" />
+                                <span>
+                                  正在离线缓存 {cachingState.done}/{cachingState.total}
+                                </span>
+                              </>
+                            ) : cachedUrls.size >= allVoiceUrls.length ? (
+                              <>
+                                <Check size={13} />
+                                <span>已全部离线缓存 ({cachedUrls.size})</span>
+                              </>
+                            ) : (
+                              <>
+                                <Download size={13} />
+                                <span>
+                                  离线缓存本从者语音 ({cachedUrls.size}/{allVoiceUrls.length})
+                                </span>
+                              </>
+                            )}
+                          </button>
+                        )}
+                      </div>
+                      {voiceError && <div className="voice-error-banner">{voiceError}</div>}
                       <div className="mc-stage-tabs">
                         {servant.voices.map((vs, idx) => (
                           <button
@@ -678,15 +826,39 @@ export const ServantDetailModal: React.FC<ServantDetailModalProps> = ({
                       </div>
                       <div className="voice-table">
                         {servant.voices[Math.min(activeVoiceSec, servant.voices.length - 1)]?.items.map(
-                          (item, idx) => (
-                            <div key={idx} className="voice-row">
-                              <div className="voice-row-title">{item.title}</div>
-                              <div className="voice-row-content">
-                                <div className="voice-cn">{item.textCn}</div>
-                                {item.textJp && <div className="voice-jp">{item.textJp}</div>}
+                          (item, idx) => {
+                            const isPlaying = Boolean(item.audioUrl && playingVoiceUrl === item.audioUrl);
+                            const isLoading = Boolean(item.audioUrl && loadingVoiceUrl === item.audioUrl);
+                            const isCached = Boolean(item.audioUrl && cachedUrls.has(item.audioUrl));
+                            return (
+                              <div key={idx} className={`voice-row ${isPlaying ? 'voice-row-playing' : ''}`}>
+                                <div className="voice-row-title">
+                                  <span>{item.title}</span>
+                                  {item.audioUrl && (
+                                    <button
+                                      type="button"
+                                      className={`voice-play-btn ${isPlaying ? 'playing' : ''} ${isCached ? 'cached' : ''}`}
+                                      onClick={() => handlePlayVoice(item.audioUrl!)}
+                                      title={isPlaying ? '停止播放' : isCached ? '播放（已离线缓存）' : '在线播放并缓存'}
+                                    >
+                                      {isLoading ? (
+                                        <Loader2 size={13} className="spin-icon" />
+                                      ) : isPlaying ? (
+                                        <Square size={12} fill="currentColor" />
+                                      ) : (
+                                        <Play size={13} fill="currentColor" />
+                                      )}
+                                      <span>{isPlaying ? '停止' : '播放'}</span>
+                                    </button>
+                                  )}
+                                </div>
+                                <div className="voice-row-content">
+                                  <div className="voice-cn">{item.textCn}</div>
+                                  {item.textJp && <div className="voice-jp">{item.textJp}</div>}
+                                </div>
                               </div>
-                            </div>
-                          )
+                            );
+                          }
                         )}
                       </div>
                     </div>
@@ -694,6 +866,8 @@ export const ServantDetailModal: React.FC<ServantDetailModalProps> = ({
                 </div>
               )}
             </div>
+
+            <BackToTopButton targetRef={scrollRef} variant="modal" />
 
             {servant.ascensions.length > 0 && (
               <CardLightbox

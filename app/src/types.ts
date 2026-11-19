@@ -127,6 +127,8 @@ export interface VoiceItem {
   title: string;
   textCn: string;
   textJp: string;
+  audioFile?: string;
+  audioUrl?: string;
 }
 
 export interface VoiceSection {
@@ -255,6 +257,144 @@ export interface CeFilterState {
   tagMatchMode: 'AND' | 'OR';
 }
 
+export interface MysticCodeSkill {
+  icon: string;
+  iconLocal: string;
+  iconRemote: string;
+  nameCn: string;
+  nameJp: string;
+  cd: number | null;
+  effects: SkillEffect[];
+}
+
+export interface MysticCode {
+  id: number;
+  nameCn: string;
+  nameJp: string;
+  descCn: string;
+  descJp: string;
+  obtain: string;
+  expCurve: number[];
+  arts: AscensionArt[];
+  skills: MysticCodeSkill[];
+}
+
+export interface CostumeItem {
+  id: number;
+  servant: string;
+  nameCn: string;
+  nameJp: string;
+  descCn: string;
+  descJp: string;
+  obtain: string;
+  materials: MaterialItem[];
+  iconLocal: string;
+  iconRemote: string;
+  artThumbLocal: string;
+  artThumbRemote: string;
+  artFullUrl: string;
+}
+
+export interface ItemDropQuest {
+  chapter: string;
+  location: string;
+  questCn: string;
+  questJp: string;
+  ap: number;
+  bond: number;
+  exp: number;
+  samples: number;
+  dropRate: string;
+  dropRateNum: number;
+  apPerDrop: number;
+  otherDrops: { name: string; rate: string }[];
+}
+
+export interface GameItem {
+  id: number;
+  itemId: string;
+  nameCn: string;
+  nameJp: string;
+  nameEn: string;
+  rarity: number;
+  categoryGroup: string;
+  rawCategories: string[];
+  descCn: string;
+  descJp: string;
+  iconLocal: string;
+  iconRemote: string;
+  iconFallback: string;
+  dropCount: number;
+  bestQuest: {
+    chapter: string;
+    location: string;
+    questCn: string;
+    ap: number;
+    apPerDrop: number;
+    dropRate: string;
+  } | null;
+  dropQuests: ItemDropQuest[];
+}
+
+export interface ExtrasCatalogPayload {
+  counts: {
+    mysticCode: number;
+    costume: number;
+    item: number;
+    itemsWithDrops: number;
+  };
+  mysticCodes: MysticCode[];
+  costumes: CostumeItem[];
+  items: GameItem[];
+}
+
+export interface EventSummary {
+  title: string;
+  nameCn: string;
+  nameJp: string;
+  startCn: number;
+  endCn: number;
+  startJp: number;
+  endJp: number;
+  type: string;
+  server: string;
+  bannerThumb: string;
+  bannerFull: string;
+}
+
+export interface BannerSummary {
+  title: string;
+  titleCn: string;
+  titleJp: string;
+  startCn: number;
+  endCn: number;
+  startJp: number;
+  endJp: number;
+  bannerThumb: string;
+  bannerFull: string;
+  servants: string[];
+  ces: string[];
+  luckybag: boolean;
+}
+
+export interface EventsBannersPayload {
+  generatedAt: string;
+  counts: {
+    events: number;
+    banners: number;
+  };
+  events: EventSummary[];
+  banners: BannerSummary[];
+}
+
+export interface EventQuestConfigData {
+  pageTitle: string;
+  isSubpage: boolean;
+  sections: { index: string; line: string; anchor: string; level: string }[];
+  html: string;
+  fetchedAt: string;
+}
+
 export interface ServantFilterState {
   rarities: number[];
   classes: string[];
@@ -264,4 +404,69 @@ export interface ServantFilterState {
   methods: string[];
   traits: string[];
   traitMatchMode: 'AND' | 'OR';
+}
+
+/* ========================= 剧情阅读器（Atlas Academy CN） ========================= */
+
+export type StoryWarCategory = 'part1' | 'part15' | 'part2' | 'ordeal_call' | 'event';
+
+export interface StoryWarSummary {
+  id: number;
+  eventId: number;
+  category: StoryWarCategory;
+  name: string;
+  longName: string;
+  banner: string;
+  startJp?: number;
+  startJpDate?: string;
+}
+
+export interface StoryWarsPayload {
+  generatedAt: string;
+  counts: {
+    total: number;
+    main: number;
+    event: number;
+  };
+  wars: StoryWarSummary[];
+}
+
+export interface StoryScriptEntry {
+  scriptId: string;
+  scriptUrl: string;
+  spotName: string;
+  questName: string;
+  phase: number;
+  partLabel: string;
+}
+
+export interface StoryWarDetail {
+  warId: number;
+  name: string;
+  longName: string;
+  entries: StoryScriptEntry[];
+  fetchedAt: string;
+}
+
+export type StoryBlock =
+  | { type: 'bg'; url: string; id: string }
+  | { type: 'cg'; url: string; name: string }
+  | { type: 'narration'; text: string }
+  | { type: 'dialogue'; speaker: string; text: string }
+  | { type: 'choices'; options: { index: string; text: string }[] };
+
+export interface ParsedStoryScript {
+  scriptId: string;
+  blocks: StoryBlock[];
+  fetchedAt: string;
+}
+
+export interface WarReadProgress {
+  warId: number;
+  lastScriptId: string;
+  lastEntryIndex: number;
+  lastTitle: string;
+  lastScrollTop: number;
+  readScriptIds: string[];
+  updatedAt: number;
 }

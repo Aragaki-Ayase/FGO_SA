@@ -1,0 +1,48 @@
+name: Update Mooncell & Atlas Catalog Data
+
+on:
+  schedule:
+    # 每周一北京时间 12:00 (UTC 04:00) 自动检查并更新全量离线数据包
+    - cron: '0 4 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  update-data:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Python dependencies
+        run: pip install pillow
+
+      - name: Restore Mooncell SQLite cache
+        uses: actions/cache@v4
+        with:
+          path: data/mooncell.sqlite3
+          key: mooncell-sqlite-${{ github.run_id }}
+          restore-keys: |
+            mooncell-sqlite-
+
+      - name: Run incremental catalog & story data sync
+        run: python -X utf8 update_cloud_data.py
+
+      - name: Commit & push updated JSON data if changed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/public/data/ app/public/assets/story/
+          if git diff --cached --quiet; then
+            echo "No data changes detected."
+          else
+            git commit -m "chore(data): auto-update Mooncell & Atlas catalog data"
+            git push
+          fi

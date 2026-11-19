@@ -1,7 +1,8 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import { X, RotateCcw, Search, Filter, CheckSquare, Sparkles } from 'lucide-react';
 import { CeFilterState, CraftEssenceSummary } from '../types';
 import { SmartImage } from './SmartImage';
+import { BackToTopButton } from './BackToTopButton';
 import { useBackClose } from '../utils/backNavigation';
 
 interface CeFilterModalProps {
@@ -54,6 +55,7 @@ export const CeFilterModal: React.FC<CeFilterModalProps> = ({
   onSelectCe,
 }) => {
   const [tagSearch, setTagSearch] = useState('');
+  const scrollRef = useRef<HTMLDivElement | null>(null);
 
   useBackClose(open, onClose);
 
@@ -99,7 +101,7 @@ export const CeFilterModal: React.FC<CeFilterModalProps> = ({
           </div>
         </div>
 
-        <div className="filter-drawer-body">
+        <div className="filter-drawer-body" ref={scrollRef}>
           {/* 1. 星级 */}
           <section className="filter-section">
             <div className="filter-sec-header">
@@ -360,6 +362,8 @@ export const CeFilterModal: React.FC<CeFilterModalProps> = ({
             </div>
           </section>
         </div>
+
+        <BackToTopButton targetRef={scrollRef} variant="drawer" />
 
         <div className="filter-drawer-footer">
           <button type="button" className="btn-primary-full" onClick={onClose}>

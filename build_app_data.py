@@ -757,13 +757,27 @@ def parse_voices(voice_wt: str | None) -> list[dict]:
             v_title = named.get(f"标题{idx}", "").strip()
             v_cn = named.get(f"中文{idx}", "").strip()
             v_jp = named.get(f"日文{idx}", "").strip()
+            v_audio = named.get(f"语音{idx}", "").strip()
             if not v_title and not v_cn and not v_jp:
                 continue
-            items.append({
+            audio_fn = ""
+            audio_url = ""
+            if v_audio:
+                # 兼容多文件用逗号或分号分隔的情况，取第一个有效音频文件名
+                cand = re.split(r"[;；,，\n]", v_audio)[0].strip()
+                cand = re.sub(r"^(?:File:|文件:)", "", cand, flags=re.I).strip()
+                if cand and "." in cand:
+                    audio_fn = cand
+                    audio_url = media_url(cand)
+            item_obj = {
                 "title": clean_wikitext_inline(v_title, preserve_special=False),
                 "textCn": clean_wikitext_inline(v_cn, preserve_special=False),
                 "textJp": clean_wikitext_inline(v_jp, preserve_special=False),
-            })
+            }
+            if audio_url:
+                item_obj["audioFile"] = audio_fn
+                item_obj["audioUrl"] = audio_url
+            items.append(item_obj)
         if items:
             sections.append({
                 "section": sec_title,
@@ -1299,6 +1313,20 @@ def build_all():
                 json.dumps(chunk_data, ensure_ascii=False, separators=(",", ":")),
                 encoding="utf-8",
             )
+
+    # Build Mystic Codes, Costumes, and Items + Drop Efficiency
+    from build_extras_data import build_extras
+    build_extras(
+        db,
+        image_set,
+        {
+            "safe_filename": safe_filename,
+            "media_url": media_url,
+            "clean_wikitext_inline": clean_wikitext_inline,
+            "extract_template_blocks": extract_template_blocks,
+            "parse_template_params": parse_template_params,
+        },
+    )
 
     # Write image manifest for offline asset downloader
     MANIFEST_PATH.write_text(

@@ -11,19 +11,36 @@ import {
   AlertCircle,
   Sparkles,
   Shield,
+  Wand2,
+  Shirt,
+  Package,
+  MapPin,
+  Swords,
+  Ticket,
+  BookOpen,
 } from 'lucide-react';
 import {
   CatalogSummaryPayload,
+  ExtrasCatalogPayload,
+  EventsBannersPayload,
+  StoryWarsPayload,
   ServantFilterState,
   CeFilterState,
   ServantDetail,
   CraftEssenceDetail,
+  MysticCode,
+  CostumeItem,
+  GameItem,
+  EventSummary,
 } from './types';
 import {
   loadCatalogSummary,
+  loadExtrasCatalog,
+  loadEventsBanners,
   loadServantDetail,
   loadCraftEssenceDetail,
   syncFromMooncell,
+  syncFromCloudManifest,
   UpdateProgress,
 } from './services/dataService';
 import { SmartImage } from './components/SmartImage';
@@ -31,6 +48,16 @@ import { ServantFilterModal } from './components/ServantFilterModal';
 import { CeFilterModal } from './components/CeFilterModal';
 import { ServantDetailModal } from './components/ServantDetailModal';
 import { CeDetailModal } from './components/CeDetailModal';
+import {
+  MysticCodeDetailModal,
+  CostumeDetailModal,
+  ItemDetailModal,
+} from './components/ExtrasModals';
+import { EventDetailModal, BannerCard } from './components/EventsBannersView';
+import { QuestConfigHub } from './components/QuestConfigHub';
+import { StoryHub } from './components/StoryHub';
+import { BackToTopButton } from './components/BackToTopButton';
+import { loadStoryWars, syncStoryWarsFromAtlas } from './services/storyService';
 
 const INITIAL_SERVANT_FILTERS: ServantFilterState = {
   rarities: [],
@@ -93,10 +120,44 @@ const QUICK_CE_TAGS = [
   'QP获得量加成',
 ];
 
+const ITEM_CATEGORIES = [
+  '全部',
+  '铜素材',
+  '银素材',
+  '金素材',
+  '职阶技能石',
+  '职阶棋子',
+  '特殊素材',
+  '一般道具',
+];
+
 export const App: React.FC = () => {
   const [catalog, setCatalog] = useState<CatalogSummaryPayload | null>(null);
+  const [extras, setExtras] = useState<ExtrasCatalogPayload | null>(null);
+  const [eventsBanners, setEventsBanners] = useState<EventsBannersPayload | null>(null);
+  const [storyWars, setStoryWars] = useState<StoryWarsPayload | null>(null);
   const [initError, setInitError] = useState<string>('');
-  const [mainTab, setMainTab] = useState<'servant' | 'ce'>('servant');
+  const [mainTab, setMainTab] = useState<
+    'servant' | 'ce' | 'mc' | 'costume' | 'item' | 'event' | 'banner' | 'story'
+  >('servant');
+  const [tabResetTick, setTabResetTick] = useState(0);
+
+  const handleBottomTabClick = (
+    tab: 'servant' | 'ce' | 'mc' | 'costume' | 'item' | 'event' | 'banner' | 'story'
+  ) => {
+    setMainTab(tab);
+    setSearchQuery('');
+    setFilterModalOpen(false);
+    setCeFilterModalOpen(false);
+    setSelectedSvt(null);
+    setSelectedCe(null);
+    setSelectedMc(null);
+    setSelectedCostume(null);
+    setSelectedItem(null);
+    setSelectedEvent(null);
+    setTabResetTick((t) => t + 1);
+    catalogMainRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+  };
 
   // Search, sort & layout mode
   const [searchQuery, setSearchQuery] = useState('');
@@ -111,30 +172,87 @@ export const App: React.FC = () => {
   const [ceFilters, setCeFilters] = useState<CeFilterState>(INITIAL_CE_FILTERS);
   const [ceFilterModalOpen, setCeFilterModalOpen] = useState(false);
 
+  // Item Filters
+  const [itemCategory, setItemCategory] = useState<string>('全部');
+  const [itemDropsOnly, setItemDropsOnly] = useState<boolean>(false);
+
+  // Event & Banner Filters
+  const [eventFilter, setEventFilter] = useState<'all' | 'live' | 'future' | 'Event' | 'Campaign'>('all');
+  const [bannerFilter, setBannerFilter] = useState<'all' | 'cn_live' | 'jp_live' | 'future' | 'lucky'>('all');
+
   // Infinite scroll pagination
   const [visibleLimit, setVisibleLimit] = useState(96);
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
+  const catalogMainRef = useRef<HTMLElement | null>(null);
+  const autoSyncedRef = useRef(false);
 
   // Detail Modals
   const [selectedSvt, setSelectedSvt] = useState<ServantDetail | null>(null);
   const [svtLoading, setSvtLoading] = useState(false);
   const [selectedCe, setSelectedCe] = useState<CraftEssenceDetail | null>(null);
   const [ceLoading, setCeLoading] = useState(false);
+  const [selectedMc, setSelectedMc] = useState<MysticCode | null>(null);
+  const [selectedCostume, setSelectedCostume] = useState<CostumeItem | null>(null);
+  const [selectedItem, setSelectedItem] = useState<GameItem | null>(null);
+  const [selectedEvent, setSelectedEvent] = useState<EventSummary | null>(null);
 
   // Non-blocking background update state
   const [updateState, setUpdateState] = useState<UpdateProgress | null>(null);
   const [updateToastVisible, setUpdateToastVisible] = useState(false);
+  const [updateToastFading, setUpdateToastFading] = useState(false);
+
+  const showToast = () => {
+    setUpdateToastFading(false);
+    setUpdateToastVisible(true);
+  };
+
+  const dismissToastSmoothly = () => {
+    setUpdateToastFading(true);
+    window.setTimeout(() => {
+      setUpdateToastVisible(false);
+      setUpdateToastFading(false);
+    }, 450);
+  };
+
+  // 更新完成或出错后渐变式淡出隐藏提示框（成功 3.2 秒后开始淡出，异常 4.7 秒后开始淡出）
+  useEffect(() => {
+    if (!updateToastVisible || !updateState || updateState.running) return;
+    const delay = updateState.error ? 4700 : 3200;
+    const fadeTimer = window.setTimeout(() => {
+      setUpdateToastFading(true);
+    }, delay);
+    const hideTimer = window.setTimeout(() => {
+      setUpdateToastVisible(false);
+      setUpdateToastFading(false);
+    }, delay + 450);
+    return () => {
+      window.clearTimeout(fadeTimer);
+      window.clearTimeout(hideTimer);
+    };
+  }, [updateToastVisible, updateState]);
 
   useEffect(() => {
     loadCatalogSummary()
       .then((data) => setCatalog(data))
       .catch((err) => setInitError(err.message || '加载离线数据失败'));
+    loadExtrasCatalog()
+      .then((data) => setExtras(data))
+      .catch(() => {});
+    loadEventsBanners()
+      .then((data) => setEventsBanners(data))
+      .catch(() => {});
+    loadStoryWars()
+      .then((data) => setStoryWars(data))
+      .catch(() => {});
   }, []);
 
-  // Reset pagination when filters/tab/search change
+  // Reset pagination & scroll position to top when switching tabs or filters
   useEffect(() => {
     setVisibleLimit(96);
-  }, [mainTab, searchQuery, sortBy, svtFilters, ceFilters]);
+    if (catalogMainRef.current) {
+      catalogMainRef.current.scrollTo({ top: 0, behavior: 'auto' });
+    }
+  }, [mainTab, searchQuery, sortBy, svtFilters, ceFilters, itemCategory, itemDropsOnly, eventFilter, bannerFilter]);
 
   // Filtered & sorted Servants
   const filteredServants = useMemo(() => {
@@ -242,11 +360,167 @@ export const App: React.FC = () => {
     });
   }, [catalog, searchQuery, ceFilters, sortBy]);
 
+  // Filtered Mystic Codes
+  const filteredMysticCodes = useMemo(() => {
+    if (!extras) return [];
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return extras.mysticCodes;
+    return extras.mysticCodes.filter(
+      (mc) =>
+        mc.nameCn.toLowerCase().includes(q) ||
+        mc.nameJp.toLowerCase().includes(q) ||
+        mc.descCn.toLowerCase().includes(q) ||
+        mc.skills.some(
+          (sk) =>
+            sk.nameCn.toLowerCase().includes(q) ||
+            sk.effects.some((ef) => ef.text.toLowerCase().includes(q))
+        )
+    );
+  }, [extras, searchQuery]);
+
+  // Filtered Costumes
+  const filteredCostumes = useMemo(() => {
+    if (!extras) return [];
+    const q = searchQuery.trim().toLowerCase();
+    const list = !q
+      ? extras.costumes
+      : extras.costumes.filter(
+          (c) =>
+            String(c.id) === q.replace(/^#/, '') ||
+            c.nameCn.toLowerCase().includes(q) ||
+            c.nameJp.toLowerCase().includes(q) ||
+            c.servant.toLowerCase().includes(q) ||
+            c.obtain.toLowerCase().includes(q)
+        );
+    return [...list].sort((a, b) => (sortBy === 'id_asc' ? a.id - b.id : b.id - a.id));
+  }, [extras, searchQuery, sortBy]);
+
+  // Filtered Items
+  const filteredItems = useMemo(() => {
+    if (!extras) return [];
+    const q = searchQuery.trim().toLowerCase();
+    return extras.items.filter((it) => {
+      if (itemCategory !== '全部' && it.categoryGroup !== itemCategory) return false;
+      if (itemDropsOnly && it.dropCount === 0) return false;
+      if (q) {
+        const matchText =
+          it.nameCn.toLowerCase().includes(q) ||
+          it.nameJp.toLowerCase().includes(q) ||
+          it.nameEn.toLowerCase().includes(q) ||
+          it.categoryGroup.toLowerCase().includes(q) ||
+          it.dropQuests.some(
+            (dq) =>
+              dq.questCn.toLowerCase().includes(q) ||
+              dq.chapter.toLowerCase().includes(q) ||
+              dq.location.toLowerCase().includes(q)
+          );
+        if (!matchText) return false;
+      }
+      return true;
+    });
+  }, [extras, searchQuery, itemCategory, itemDropsOnly]);
+
+  const handleOpenItemByName = (name: string) => {
+    if (!extras) return;
+    const found = extras.items.find(
+      (it) => it.nameCn === name || it.nameJp === name || it.nameCn.includes(name)
+    );
+    if (found) {
+      setSelectedItem(found);
+    }
+  };
+
+  const servantByTitle = useMemo(() => {
+    const map = new Map<string, typeof filteredServants[number]>();
+    if (!catalog) return map;
+    for (const s of catalog.servants) {
+      map.set(s.title, s);
+      if (!map.has(s.nameCn)) map.set(s.nameCn, s);
+    }
+    return map;
+  }, [catalog]);
+
+  const ceByTitle = useMemo(() => {
+    const map = new Map<string, typeof filteredCes[number]>();
+    if (!catalog) return map;
+    for (const c of catalog.craftEssences) {
+      map.set(c.title, c);
+      if (!map.has(c.nameCn)) map.set(c.nameCn, c);
+    }
+    return map;
+  }, [catalog]);
+
+  const filteredEvents = useMemo(() => {
+    if (!eventsBanners) return [];
+    const q = searchQuery.trim().toLowerCase();
+    const nowSec = Math.floor(Date.now() / 1000);
+    return eventsBanners.events.filter((ev) => {
+      if (eventFilter === 'live') {
+        const cnLive = ev.startCn > 0 && ev.startCn <= nowSec && ev.endCn >= nowSec;
+        const jpLive = ev.startJp > 0 && ev.startJp <= nowSec && ev.endJp >= nowSec;
+        if (!cnLive && !jpLive) return false;
+      } else if (eventFilter === 'future') {
+        if (!(ev.startCn === 0 && ev.startJp > 0) && !(ev.startCn > nowSec)) return false;
+      } else if (eventFilter === 'Event' || eventFilter === 'Campaign') {
+        if (ev.type !== eventFilter) return false;
+      }
+      if (q) {
+        if (
+          !ev.nameCn.toLowerCase().includes(q) &&
+          !ev.nameJp.toLowerCase().includes(q) &&
+          !ev.title.toLowerCase().includes(q)
+        ) {
+          return false;
+        }
+      }
+      return true;
+    });
+  }, [eventsBanners, searchQuery, eventFilter]);
+
+  const filteredBanners = useMemo(() => {
+    if (!eventsBanners) return [];
+    const q = searchQuery.trim().toLowerCase();
+    const nowSec = Math.floor(Date.now() / 1000);
+    return eventsBanners.banners.filter((b) => {
+      if (bannerFilter === 'cn_live') {
+        if (!(b.startCn > 0 && b.startCn <= nowSec && b.endCn >= nowSec)) return false;
+      } else if (bannerFilter === 'jp_live') {
+        if (!(b.startJp > 0 && b.startJp <= nowSec && b.endJp >= nowSec)) return false;
+      } else if (bannerFilter === 'future') {
+        if (!(b.startCn === 0 && b.startJp > 0) && !(b.startCn > nowSec)) return false;
+      } else if (bannerFilter === 'lucky') {
+        if (!b.luckybag) return false;
+      }
+      if (q) {
+        const matchName =
+          b.titleCn.toLowerCase().includes(q) ||
+          b.titleJp.toLowerCase().includes(q) ||
+          b.servants.some((s) => s.toLowerCase().includes(q)) ||
+          b.ces.some((c) => c.toLowerCase().includes(q));
+        if (!matchName) return false;
+      }
+      return true;
+    });
+  }, [eventsBanners, searchQuery, bannerFilter]);
+
   // IntersectionObserver for smooth infinite scroll
   useEffect(() => {
     const node = loadMoreRef.current;
     if (!node) return;
-    const totalCount = mainTab === 'servant' ? filteredServants.length : filteredCes.length;
+    const totalCount =
+      mainTab === 'servant'
+        ? filteredServants.length
+        : mainTab === 'ce'
+        ? filteredCes.length
+        : mainTab === 'costume'
+        ? filteredCostumes.length
+        : mainTab === 'item'
+        ? filteredItems.length
+        : mainTab === 'event'
+        ? filteredEvents.length
+        : mainTab === 'banner'
+        ? filteredBanners.length
+        : filteredMysticCodes.length;
     if (visibleLimit >= totalCount) return;
 
     const obs = new IntersectionObserver(
@@ -259,7 +533,17 @@ export const App: React.FC = () => {
     );
     obs.observe(node);
     return () => obs.disconnect();
-  }, [visibleLimit, mainTab, filteredServants.length, filteredCes.length]);
+  }, [
+    visibleLimit,
+    mainTab,
+    filteredServants.length,
+    filteredCes.length,
+    filteredCostumes.length,
+    filteredItems.length,
+    filteredEvents.length,
+    filteredBanners.length,
+    filteredMysticCodes.length,
+  ]);
 
   const activeSvtFilterCount =
     svtFilters.rarities.length +
@@ -309,19 +593,71 @@ export const App: React.FC = () => {
     }
   };
 
-  const handleTriggerOnlineUpdate = async () => {
+  const runOnlineSync = async (isAuto: boolean) => {
     if (!catalog || updateState?.running) {
-      setUpdateToastVisible(true);
+      if (!isAuto) showToast();
       return;
     }
-    setUpdateToastVisible(true);
+    if (!isAuto) {
+      showToast();
+    }
     try {
+      let latestCatalog = catalog;
+      let latestEventsBanners = eventsBanners;
+      let cloudUpdatedCount = 0;
+
+      // 通道 1（方案 1）：优先增量同步 GitHub 云端自动生成的完整数据包
+      // 覆盖新英灵完整技能/宝具/羁绊、新礼装、新魔术礼装、新灵衣、新素材掉落
+      try {
+        const cloudRes = await syncFromCloudManifest((phase, percent) => {
+          setUpdateState({
+            running: true,
+            phase,
+            current: percent,
+            total: 100,
+            updatedServants: 0,
+            updatedCes: 0,
+          });
+        });
+        cloudUpdatedCount = cloudRes.updatedFiles.length;
+        if (cloudRes.catalogUpdated) {
+          const freshCat = await loadCatalogSummary();
+          latestCatalog = freshCat;
+          setCatalog(freshCat);
+        }
+        if (cloudRes.extrasUpdated) {
+          const freshExtras = await loadExtrasCatalog();
+          setExtras(freshExtras);
+        }
+        if (cloudRes.eventsUpdated) {
+          const freshEv = await loadEventsBanners();
+          latestEventsBanners = freshEv;
+          setEventsBanners(freshEv);
+        }
+      } catch {
+        // 云端通道异常时不影响直连源站通道
+      }
+
+      // 通道 2：直连 Mooncell 核对最新索引、活动与卡池排期
       const res = await syncFromMooncell(
-        catalog.servants,
-        catalog.craftEssences,
-        (prog) => setUpdateState(prog)
+        latestCatalog.servants,
+        latestCatalog.craftEssences,
+        (prog) => {
+          if (!prog.running && cloudUpdatedCount > 0) {
+            setUpdateState({
+              ...prog,
+              phase: `同步完成：已增量更新 ${cloudUpdatedCount} 个云端完整数据包（英灵/礼装/魔术礼装/灵衣/素材已保存本地）`,
+            });
+          } else {
+            setUpdateState(prog);
+          }
+        },
+        latestEventsBanners?.events || [],
+        latestEventsBanners?.banners || []
       );
+      let hasAnyUpdate = cloudUpdatedCount > 0;
       if (res.newServants.length > 0 || res.newCes.length > 0) {
+        hasAnyUpdate = true;
         setCatalog((prev) => {
           if (!prev) return prev;
           const nextSvts = [...res.newServants, ...prev.servants].sort((a, b) => b.id - a.id);
@@ -334,6 +670,50 @@ export const App: React.FC = () => {
           };
         });
       }
+      if (res.syncedEvents.length > 0 || res.syncedBanners.length > 0) {
+        setEventsBanners((prev) => {
+          if (!prev) return prev;
+          const evMap = new Map(prev.events.map((e) => [e.title, e]));
+          for (const e of res.syncedEvents) evMap.set(e.title, e);
+          const nextEvents = Array.from(evMap.values()).sort(
+            (a, b) => Math.max(b.startJp, b.startCn) - Math.max(a.startJp, a.startCn)
+          );
+
+          const bnMap = new Map(prev.banners.map((b) => [b.title, b]));
+          for (const b of res.syncedBanners) bnMap.set(b.title, b);
+          const nextBanners = Array.from(bnMap.values()).sort(
+            (a, b) => Math.max(b.startJp, b.startCn) - Math.max(a.startJp, a.startCn)
+          );
+
+          return {
+            ...prev,
+            generatedAt: new Date().toLocaleString('zh-CN', { hour12: false }),
+            counts: { events: nextEvents.length, banners: nextBanners.length },
+            events: nextEvents,
+            banners: nextBanners,
+          };
+        });
+      }
+      // 顺带同步 Atlas Academy CN 最新剧情篇章目录（失败不影响整体同步）
+      syncStoryWarsFromAtlas()
+        .then((storyRes) => {
+          if (storyRes.wars.length > 0) {
+            setStoryWars({
+              generatedAt: new Date().toLocaleString('zh-CN', { hour12: false }),
+              counts: {
+                total: storyRes.wars.length,
+                main: storyRes.wars.filter((w) => w.category !== 'event').length,
+                event: storyRes.wars.filter((w) => w.category === 'event').length,
+              },
+              wars: storyRes.wars,
+            });
+          }
+        })
+        .catch(() => {});
+      if (hasAnyUpdate || isAuto) {
+        // 有更新或自动更新完成时，弹出提示后渐变消失
+        showToast();
+      }
     } catch (err: any) {
       setUpdateState({
         running: false,
@@ -344,8 +724,20 @@ export const App: React.FC = () => {
         updatedCes: 0,
         error: err?.message || '网络请求异常',
       });
+      if (!isAuto) {
+        showToast();
+      }
     }
   };
+
+  const handleTriggerOnlineUpdate = () => runOnlineSync(false);
+
+  // 每次打开 App 初始化完成后，自动在后台向 Mooncell 执行一次非阻塞更新检查
+  useEffect(() => {
+    if (!catalog || autoSyncedRef.current) return;
+    autoSyncedRef.current = true;
+    runOnlineSync(true);
+  }, [catalog]);
 
   if (initError) {
     return (
@@ -381,14 +773,18 @@ export const App: React.FC = () => {
             title="从 Mooncell 网站后台检查并更新数据，更新期间不影响浏览"
           >
             <RefreshCw size={15} className={updateState?.running ? 'spin-icon' : ''} />
-            <span>{updateState?.running ? `更新中 ${updateState.current}%` : '从网站更新数据'}</span>
+            <span>{updateState?.running ? `更新中 ${updateState.current}%` : '更新数据'}</span>
           </button>
         </div>
       </header>
 
-      {/* Non-blocking Floating Update Status Banner */}
+      {/* Non-blocking Floating Update Status Banner (Smooth Fade Out) */}
       {updateToastVisible && updateState && (
-        <div className="nonblocking-update-toast" role="status" aria-live="polite">
+        <div
+          className={`nonblocking-update-toast ${updateToastFading ? 'toast-fading' : ''}`}
+          role="status"
+          aria-live="polite"
+        >
           <div className="update-toast-main">
             {updateState.running ? (
               <RefreshCw size={16} className="spin-icon text-accent" />
@@ -411,7 +807,7 @@ export const App: React.FC = () => {
             <button
               type="button"
               className="toast-close-btn"
-              onClick={() => setUpdateToastVisible(false)}
+              onClick={dismissToastSmoothly}
               title="后台继续运行 / 隐藏提示"
             >
               <X size={15} />
@@ -429,7 +825,19 @@ export const App: React.FC = () => {
             placeholder={
               mainTab === 'servant'
                 ? '搜索英灵名称 / 外号(如:呆毛、水千利休) / 日文 / 编号...'
-                : '搜索概念礼装名称 / 效果标签(如:初始NP、Buster、暴击) / 编号...'
+                : mainTab === 'ce'
+                ? '搜索概念礼装名称 / 效果标签(如:初始NP、Buster、暴击) / 编号...'
+                : mainTab === 'mc'
+                ? '搜索魔术礼装名称 / 御主技能(如:换人、充能、减冷却)...'
+                : mainTab === 'costume'
+                ? '搜索灵衣名称 / 所属从者(如:玛修、阿尔托莉雅) / 编号...'
+                : mainTab === 'item'
+                ? '搜索素材道具名称 / 掉落关卡或章节(如:凶骨、冬木、八连双晶)...'
+                : mainTab === 'event'
+                ? '搜索活动名称 / 活动年份或关键词(如:泳装、唠唠叨叨、圣诞)...'
+                : mainTab === 'story'
+                ? '搜索主线章节或活动剧情名称(如:奥林波斯、奏章、唠唠叨叨)...'
+                : '搜索卡池名称 / UP从者名(如:阿尔托莉雅、摩根) / UP礼装名...'
             }
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
@@ -447,7 +855,7 @@ export const App: React.FC = () => {
         </div>
 
         <div className="toolbar-right-btns">
-          {mainTab === 'servant' ? (
+          {mainTab === 'servant' && (
             <button
               type="button"
               className={`btn-toolbar ${activeSvtFilterCount > 0 ? 'active' : ''}`}
@@ -459,7 +867,8 @@ export const App: React.FC = () => {
                 <span className="filter-count-pill">{activeSvtFilterCount}</span>
               )}
             </button>
-          ) : (
+          )}
+          {mainTab === 'ce' && (
             <button
               type="button"
               className={`btn-toolbar ${activeCeFilterCount > 0 ? 'active' : ''}`}
@@ -473,29 +882,35 @@ export const App: React.FC = () => {
             </button>
           )}
 
-          <div className="sort-select-wrap">
-            <ArrowUpDown size={14} />
-            <select
-              value={sortBy}
-              onChange={(e) => setSortBy(e.target.value as any)}
-              aria-label="排序方式"
-            >
-              <option value="id_desc">按编号 倒序</option>
-              <option value="id_asc">按编号 正序</option>
-              <option value="rarity_desc">按星级 降序</option>
-              {mainTab === 'servant' && <option value="atk_desc">满级ATK 降序</option>}
-              {mainTab === 'servant' && <option value="hp_desc">满级HP 降序</option>}
-            </select>
-          </div>
+          {(mainTab === 'servant' || mainTab === 'ce' || mainTab === 'costume') && (
+            <div className="sort-select-wrap">
+              <ArrowUpDown size={14} />
+              <select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value as any)}
+                aria-label="排序方式"
+              >
+                <option value="id_desc">按编号 倒序</option>
+                <option value="id_asc">按编号 正序</option>
+                {(mainTab === 'servant' || mainTab === 'ce') && (
+                  <option value="rarity_desc">按星级 降序</option>
+                )}
+                {mainTab === 'servant' && <option value="atk_desc">满级ATK 降序</option>}
+                {mainTab === 'servant' && <option value="hp_desc">满级HP 降序</option>}
+              </select>
+            </div>
+          )}
 
-          <button
-            type="button"
-            className="btn-toolbar icon-only"
-            onClick={() => setViewMode((m) => (m === 'grid' ? 'card' : 'grid'))}
-            title={viewMode === 'grid' ? '切换为详细图文列表' : '切换为紧凑缩略图网格'}
-          >
-            {viewMode === 'grid' ? <List size={17} /> : <LayoutGrid size={17} />}
-          </button>
+          {(mainTab === 'servant' || mainTab === 'ce') && (
+            <button
+              type="button"
+              className="btn-toolbar icon-only"
+              onClick={() => setViewMode((m) => (m === 'grid' ? 'card' : 'grid'))}
+              title={viewMode === 'grid' ? '切换为详细图文列表' : '切换为紧凑缩略图网格'}
+            >
+              {viewMode === 'grid' ? <List size={17} /> : <LayoutGrid size={17} />}
+            </button>
+          )}
         </div>
       </div>
 
@@ -646,7 +1061,7 @@ export const App: React.FC = () => {
             </div>
           )}
         </div>
-      ) : (
+      ) : mainTab === 'ce' ? (
         <div className="quick-bar-wrap">
           <div className="ce-filter-row">
             <div className="ce-pills-scroll">
@@ -809,10 +1224,58 @@ export const App: React.FC = () => {
             </div>
           )}
         </div>
-      )}
+      ) : null}
 
       {/* Main Catalog Scroll Content */}
-      <main className="catalog-main">
+      {mainTab === 'item' && (
+        <div className="quick-bar-wrap">
+          <div className="ce-pills-scroll">
+            {ITEM_CATEGORIES.map((cat) => (
+              <button
+                key={cat}
+                type="button"
+                className={`filter-chip filter-chip-sm ${itemCategory === cat ? 'active' : ''}`}
+                onClick={() => setItemCategory(cat)}
+              >
+                {cat}
+              </button>
+            ))}
+            <span className="divider-v" />
+            <button
+              type="button"
+              className={`filter-chip filter-chip-sm ${itemDropsOnly ? 'active rarity-chip' : ''}`}
+              onClick={() => setItemDropsOnly((v) => !v)}
+            >
+              仅看可刷取素材
+            </button>
+          </div>
+        </div>
+      )}
+      {mainTab === 'banner' && (
+        <div className="quick-bar-wrap">
+          <div className="ce-pills-scroll">
+            {(
+              [
+                { k: 'all', l: '全部卡池' },
+                { k: 'cn_live', l: '国服当前卡池' },
+                { k: 'jp_live', l: '日服当前卡池' },
+                { k: 'future', l: '国服未来视卡池' },
+                { k: 'lucky', l: '福袋召唤' },
+              ] as const
+            ).map((opt) => (
+              <button
+                key={opt.k}
+                type="button"
+                className={`filter-chip filter-chip-sm ${bannerFilter === opt.k ? 'active' : ''}`}
+                onClick={() => setBannerFilter(opt.k)}
+              >
+                {opt.l}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+      <main className="catalog-main" ref={catalogMainRef}>
         {!catalog ? (
           <div className="detail-loading">
             <div className="spinner" />
@@ -901,7 +1364,8 @@ export const App: React.FC = () => {
               )}
             </>
           )
-        ) : filteredCes.length === 0 ? (
+        ) : mainTab === 'ce' ? (
+          filteredCes.length === 0 ? (
           <div className="empty-state">
             <p>未找到符合条件的概念礼装</p>
             <button
@@ -991,28 +1455,283 @@ export const App: React.FC = () => {
               </div>
             )}
           </>
+          )
+        ) : mainTab === 'mc' ? (
+          filteredMysticCodes.length === 0 ? (
+            <div className="empty-state">
+              <p>未找到符合条件的魔术礼装</p>
+              <button
+                type="button"
+                className="btn-toolbar active"
+                onClick={() => setSearchQuery('')}
+              >
+                清空搜索
+              </button>
+            </div>
+          ) : (
+            <div className="mc-catalog-grid">
+              {filteredMysticCodes.map((mc) => (
+                <button
+                  key={mc.id}
+                  type="button"
+                  className="mc-catalog-card"
+                  onClick={() => setSelectedMc(mc)}
+                >
+                  <div className="mc-card-thumb-wrap">
+                    <SmartImage
+                      localSrc={mc.arts[0]?.thumbLocal}
+                      remoteSrc={mc.arts[0]?.thumbRemote}
+                      fallbackSrc={mc.arts[0]?.fullUrl}
+                      alt={mc.nameCn}
+                      className="mc-card-thumb"
+                    />
+                  </div>
+                  <div className="mc-card-info">
+                    <div className="mc-card-title-row">
+                      <span className="fgo-row-no">#{mc.id}</span>
+                      <strong>{mc.nameCn}</strong>
+                    </div>
+                    <div className="mc-card-skills-preview">
+                      {mc.skills.map((sk, si) => (
+                        <div key={si} className="mc-mini-skill">
+                          <SmartImage
+                            localSrc={sk.iconLocal}
+                            remoteSrc={sk.iconRemote}
+                            alt={sk.icon}
+                            className="mc-mini-skill-ico"
+                          />
+                          <span>{sk.nameCn}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </button>
+              ))}
+            </div>
+          )
+        ) : mainTab === 'costume' ? (
+          filteredCostumes.length === 0 ? (
+            <div className="empty-state">
+              <p>未找到符合条件的灵衣</p>
+              <button
+                type="button"
+                className="btn-toolbar active"
+                onClick={() => setSearchQuery('')}
+              >
+                清空搜索
+              </button>
+            </div>
+          ) : (
+            <>
+              <div className="thumb-grid costume-thumb-grid">
+                {filteredCostumes.slice(0, visibleLimit).map((cos) => (
+                  <button
+                    key={`${cos.id}_${cos.nameCn}`}
+                    type="button"
+                    className="fgo-thumb-item"
+                    onClick={() => setSelectedCostume(cos)}
+                  >
+                    <div className="fgo-thumb-frame">
+                      <SmartImage
+                        localSrc={cos.iconLocal || cos.artThumbLocal}
+                        remoteSrc={cos.iconRemote || cos.artThumbRemote}
+                        fallbackSrc={cos.artFullUrl}
+                        alt={cos.nameCn}
+                        className="fgo-framed-img"
+                      />
+                      <span className="fgo-thumb-no">#{cos.id}</span>
+                    </div>
+                    <div className="fgo-thumb-caption">{cos.nameCn}</div>
+                    <div className="costume-svt-sub">{cos.servant}</div>
+                  </button>
+                ))}
+              </div>
+              {visibleLimit < filteredCostumes.length && (
+                <div ref={loadMoreRef} className="load-more-sentinel">
+                  正在加载更多灵衣 ({visibleLimit} / {filteredCostumes.length})...
+                </div>
+              )}
+            </>
+          )
+        ) : mainTab === 'item' ? (
+          filteredItems.length === 0 ? (
+          <div className="empty-state">
+            <p>未找到符合条件的道具或素材</p>
+            <button
+              type="button"
+              className="btn-toolbar active"
+              onClick={() => {
+                setItemCategory('全部');
+                setItemDropsOnly(false);
+                setSearchQuery('');
+              }}
+            >
+              重置道具筛选
+            </button>
+          </div>
+        ) : (
+          <div className="item-catalog-grid">
+            {filteredItems.slice(0, visibleLimit).map((it) => (
+              <button
+                key={`${it.id}_${it.nameCn}`}
+                type="button"
+                className="item-catalog-card"
+                onClick={() => setSelectedItem(it)}
+              >
+                <SmartImage
+                  localSrc={it.iconLocal}
+                  remoteSrc={it.iconRemote}
+                  fallbackSrc={it.iconFallback}
+                  alt={it.nameCn}
+                  className="item-card-icon"
+                />
+                <div className="item-card-body">
+                  <div className="fgo-row-top">
+                    <strong className="fgo-row-title">{it.nameCn}</strong>
+                    <span className={`item-cat-tag cat-${it.categoryGroup}`}>{it.categoryGroup}</span>
+                  </div>
+                  {it.bestQuest ? (
+                    <div className="item-best-drop-bar">
+                      <MapPin size={12} />
+                      <span className="item-best-quest-name">
+                        最优：{it.bestQuest.location} · {it.bestQuest.questCn}
+                      </span>
+                      <strong className="item-best-ap">{it.bestQuest.apPerDrop} AP/个</strong>
+                      <span className="item-best-rate">({it.bestQuest.dropRate})</span>
+                    </div>
+                  ) : (
+                    <div className="item-no-drop-hint">{it.descCn || '暂无自由关卡掉落'}</div>
+                  )}
+                </div>
+              </button>
+            ))}
+          </div>
+          )
+        ) : mainTab === 'event' ? (
+          <QuestConfigHub
+            events={filteredEvents}
+            searchQuery={searchQuery}
+            eventFilter={eventFilter}
+            onChangeEventFilter={setEventFilter}
+            onOpenEventDetail={(ev) => setSelectedEvent(ev)}
+            onScrollTop={() => {
+              catalogMainRef.current?.scrollTo({ top: 0, behavior: 'auto' });
+            }}
+            resetSignal={tabResetTick}
+          />
+        ) : mainTab === 'story' ? (
+          <StoryHub
+            wars={storyWars?.wars || []}
+            searchQuery={searchQuery}
+            onScrollTop={() => {
+              catalogMainRef.current?.scrollTo({ top: 0, behavior: 'auto' });
+            }}
+            resetSignal={tabResetTick}
+          />
+        ) : filteredBanners.length === 0 ? (
+          <div className="empty-state">
+            <p>未找到符合条件的推荐召唤卡池</p>
+            <button
+              type="button"
+              className="btn-toolbar active"
+              onClick={() => {
+                setBannerFilter('all');
+                setSearchQuery('');
+              }}
+            >
+              重置卡池筛选
+            </button>
+          </div>
+        ) : (
+          <>
+            <div className="banner-list-grid">
+              {filteredBanners.slice(0, visibleLimit).map((b) => (
+                <BannerCard
+                  key={b.title}
+                  banner={b}
+                  servantByTitle={servantByTitle}
+                  ceByTitle={ceByTitle}
+                  onOpenServant={handleOpenServant}
+                  onOpenCe={handleOpenCe}
+                />
+              ))}
+            </div>
+            {visibleLimit < filteredBanners.length && (
+              <div ref={loadMoreRef} className="load-more-sentinel">
+                正在加载更多卡池 ({visibleLimit} / {filteredBanners.length})...
+              </div>
+            )}
+          </>
         )}
       </main>
 
-      {/* Bottom Mobile Navigation Bar */}
-      <nav className="app-bottom-nav">
+      <BackToTopButton targetRef={catalogMainRef} variant="main" />
+
+      {/* Bottom Mobile Navigation Bar (8 Tabs, Fixed Full Width) */}
+      <nav className="app-bottom-nav nav-7tabs">
         <button
           type="button"
           className={`bottom-nav-item ${mainTab === 'servant' ? 'active' : ''}`}
-          onClick={() => setMainTab('servant')}
+          onClick={() => handleBottomTabClick('servant')}
         >
-          <Shield size={20} />
-          <span>英灵图鉴</span>
-          <small className="nav-badge">{filteredServants.length}</small>
+          <Shield size={17} />
+          <span>英灵</span>
         </button>
         <button
           type="button"
           className={`bottom-nav-item ${mainTab === 'ce' ? 'active' : ''}`}
-          onClick={() => setMainTab('ce')}
+          onClick={() => handleBottomTabClick('ce')}
         >
-          <Sparkles size={20} />
-          <span>礼装图鉴</span>
-          <small className="nav-badge">{filteredCes.length}</small>
+          <Sparkles size={17} />
+          <span>礼装</span>
+        </button>
+        <button
+          type="button"
+          className={`bottom-nav-item ${mainTab === 'event' ? 'active' : ''}`}
+          onClick={() => handleBottomTabClick('event')}
+        >
+          <Swords size={17} />
+          <span>关卡配置</span>
+        </button>
+        <button
+          type="button"
+          className={`bottom-nav-item ${mainTab === 'story' ? 'active' : ''}`}
+          onClick={() => handleBottomTabClick('story')}
+        >
+          <BookOpen size={17} />
+          <span>剧情</span>
+        </button>
+        <button
+          type="button"
+          className={`bottom-nav-item ${mainTab === 'banner' ? 'active' : ''}`}
+          onClick={() => handleBottomTabClick('banner')}
+        >
+          <Ticket size={17} />
+          <span>卡池</span>
+        </button>
+        <button
+          type="button"
+          className={`bottom-nav-item ${mainTab === 'item' ? 'active' : ''}`}
+          onClick={() => handleBottomTabClick('item')}
+        >
+          <Package size={17} />
+          <span>道具</span>
+        </button>
+        <button
+          type="button"
+          className={`bottom-nav-item ${mainTab === 'mc' ? 'active' : ''}`}
+          onClick={() => handleBottomTabClick('mc')}
+        >
+          <Wand2 size={17} />
+          <span>魔术礼装</span>
+        </button>
+        <button
+          type="button"
+          className={`bottom-nav-item ${mainTab === 'costume' ? 'active' : ''}`}
+          onClick={() => handleBottomTabClick('costume')}
+        >
+          <Shirt size={17} />
+          <span>灵衣</span>
         </button>
       </nav>
 
@@ -1059,6 +1778,7 @@ export const App: React.FC = () => {
           setSelectedSvt(null);
           handleOpenCe(ceId);
         }}
+        onOpenItemByName={handleOpenItemByName}
       />
 
       {/* Craft Essence Detail Sheet */}
@@ -1079,6 +1799,41 @@ export const App: React.FC = () => {
               : [...prev.effectTags, tag],
           }));
         }}
+      />
+
+      {/* Mystic Code Detail Sheet */}
+      <MysticCodeDetailModal
+        mc={selectedMc}
+        onClose={() => setSelectedMc(null)}
+      />
+
+      {/* Costume Detail Sheet */}
+      <CostumeDetailModal
+        costume={selectedCostume}
+        onClose={() => setSelectedCostume(null)}
+        onJumpToServantByTitle={(title) => {
+          setSelectedCostume(null);
+          handleJumpToServantByTitle(title);
+        }}
+        onOpenItemByName={handleOpenItemByName}
+      />
+
+      {/* Item & Drop Efficiency Detail Sheet */}
+      <ItemDetailModal
+        item={selectedItem}
+        onClose={() => setSelectedItem(null)}
+        onJumpToItemByName={handleOpenItemByName}
+      />
+
+      {/* Event Detail & Quest Config Sheet */}
+      <EventDetailModal
+        event={selectedEvent}
+        onClose={() => setSelectedEvent(null)}
+        allBanners={eventsBanners?.banners || []}
+        servantByTitle={servantByTitle}
+        ceByTitle={ceByTitle}
+        onOpenServant={handleOpenServant}
+        onOpenCe={handleOpenCe}
       />
     </div>
   );

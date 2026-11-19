@@ -22,6 +22,7 @@ jobs:
           pip install Pillow
           if [ ! -f "data/mooncell.sqlite3" ]; then python restore_data.py; fi
           python -X utf8 build_app_data.py
+          python -X utf8 collect_events_banners.py
           python -X utf8 download_assets.py --workers 16
 
       - name: Set up Node.js

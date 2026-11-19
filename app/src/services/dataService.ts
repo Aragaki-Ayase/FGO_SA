@@ -1,6 +1,11 @@
 import { Capacitor, CapacitorHttp } from '@capacitor/core';
 import {
   CatalogSummaryPayload,
+  ExtrasCatalogPayload,
+  EventsBannersPayload,
+  EventSummary,
+  BannerSummary,
+  EventQuestConfigData,
   ServantDetail,
   CraftEssenceDetail,
   ServantSummary,
@@ -10,11 +15,11 @@ import {
 const svtChunkCache = new Map<string, Record<string, ServantDetail>>();
 const ceChunkCache = new Map<string, Record<string, CraftEssenceDetail>>();
 
-const DB_NAME = 'mooncell_offline_overrides_v1';
+const DB_NAME = 'mooncell_offline_overrides_v2';
 
 function openOverrideDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, 1);
+    const req = indexedDB.open(DB_NAME, 2);
     req.onupgradeneeded = () => {
       const db = req.result;
       if (!db.objectStoreNames.contains('servants')) {
@@ -23,8 +28,14 @@ function openOverrideDb(): Promise<IDBDatabase> {
       if (!db.objectStoreNames.contains('ces')) {
         db.createObjectStore('ces', { keyPath: 'id' });
       }
+      if (!db.objectStoreNames.contains('quest_configs')) {
+        db.createObjectStore('quest_configs', { keyPath: 'key' });
+      }
       if (!db.objectStoreNames.contains('meta')) {
         db.createObjectStore('meta', { keyPath: 'key' });
+      }
+      if (!db.objectStoreNames.contains('data_blobs')) {
+        db.createObjectStore('data_blobs', { keyPath: 'key' });
       }
     };
     req.onsuccess = () => resolve(req.result);
@@ -74,14 +85,189 @@ async function idbPut<T>(storeName: string, val: T): Promise<void> {
   }
 }
 
-const DATA_VERSION = '20261118v3';
+const DATA_VERSION = '20261119v4';
+
+const CLOUD_DATA_BASES = [
+  'https://cdn.jsdelivr.net/gh/Aragaki-Ayase/FGO_SA@main/app/public/data',
+  'https://raw.githubusercontent.com/Aragaki-Ayase/FGO_SA/main/app/public/data',
+];
+
+export interface CloudManifest {
+  version: string;
+  updatedAt: string;
+  counts: Record<string, number>;
+  files: Record<string, string>;
+}
+
+async function fetchCloudJson<T>(relPath: string): Promise<T> {
+  const bust = `t=${Date.now()}`;
+  let lastErr: any = null;
+  for (const base of CLOUD_DATA_BASES) {
+    const url = `${base}/${relPath}?${bust}`;
+    try {
+      if (Capacitor.isNativePlatform()) {
+        const res = await CapacitorHttp.get({
+          url,
+          headers: { 'User-Agent': 'MooncellOfflineApp/1.0' },
+        });
+        if (res.status === 200) {
+          return typeof res.data === 'string' ? JSON.parse(res.data) : res.data;
+        }
+        throw new Error(`HTTP ${res.status}`);
+      }
+      const resp = await fetch(url);
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      return await resp.json();
+    } catch (err) {
+      lastErr = err;
+    }
+  }
+  throw lastErr || new Error(`拉取云端数据失败: ${relPath}`);
+}
+
+export async function loadExtrasCatalog(): Promise<ExtrasCatalogPayload> {
+  const cached = await idbGet<{ key: string; data: ExtrasCatalogPayload }>(
+    'data_blobs',
+    'extras_catalog.json'
+  );
+  if (cached?.data) {
+    return cached.data;
+  }
+  const resp = await fetch(`./data/extras_catalog.json?v=${DATA_VERSION}`);
+  if (!resp.ok) {
+    throw new Error('无法加载魔术礼装/灵衣/道具离线数据');
+  }
+  return await resp.json();
+}
+
+export async function loadEventsBanners(): Promise<EventsBannersPayload> {
+  const cachedBlob = await idbGet<{ key: string; data: EventsBannersPayload }>(
+    'data_blobs',
+    'events_banners.json'
+  );
+  let base: EventsBannersPayload;
+  if (cachedBlob?.data) {
+    base = structuredClone(cachedBlob.data);
+  } else {
+    const resp = await fetch(`./data/events_banners.json?v=${DATA_VERSION}`);
+    if (!resp.ok) {
+      throw new Error('无法加载活动一览与卡池一览离线数据');
+    }
+    base = await resp.json();
+  }
+
+  const cachedOverrides = await idbGet<{
+    key: string;
+    events?: EventSummary[];
+    banners?: BannerSummary[];
+    updatedAt?: string;
+  }>('meta', 'events_banners_overrides');
+
+  if (cachedOverrides) {
+    if (cachedOverrides.events && cachedOverrides.events.length > 0) {
+      const evMap = new Map(base.events.map((e) => [e.title, e]));
+      for (const e of cachedOverrides.events) {
+        evMap.set(e.title, e);
+      }
+      base.events = Array.from(evMap.values()).sort(
+        (a, b) => Math.max(b.startJp, b.startCn) - Math.max(a.startJp, a.startCn)
+      );
+      base.counts.events = base.events.length;
+    }
+    if (cachedOverrides.banners && cachedOverrides.banners.length > 0) {
+      const bnMap = new Map(base.banners.map((b) => [b.title, b]));
+      for (const b of cachedOverrides.banners) {
+        bnMap.set(b.title, b);
+      }
+      base.banners = Array.from(bnMap.values()).sort(
+        (a, b) => Math.max(b.startJp, b.startCn) - Math.max(a.startJp, a.startCn)
+      );
+      base.counts.banners = base.banners.length;
+    }
+    if (cachedOverrides.updatedAt) {
+      base.generatedAt = cachedOverrides.updatedAt;
+    }
+  }
+
+  return base;
+}
+
+function sanitizeWikiHtml(rawHtml: string): string {
+  return rawHtml
+    .replace(/<script[\s\S]*?<\/script>/gi, '')
+    .replace(/src="\/\//g, 'src="https://')
+    .replace(/srcset="[^"]*"/gi, '')
+    // 解除所有 Mooncell 外部/站内链接跳转，防止误跳出 App
+    .replace(/<a\b[^>]*>/gi, '<span class="mc-wiki-link-text">')
+    .replace(/<\/a>/gi, '</span>');
+}
+
+/**
+ * Load an event or main-story chapter's quest configuration (`{title}/关卡配置` or fallback `{title}`)
+ * from IndexedDB cache or Mooncell action=parse API, then cache locally for offline viewing.
+ */
+export async function loadEventQuestConfig(
+  eventTitle: string,
+  forceRefresh = false
+): Promise<EventQuestConfigData> {
+  const cleanTitle = eventTitle.trim();
+  const cacheKey = `v2:${cleanTitle}`;
+  if (!forceRefresh) {
+    const cached = await idbGet<{ key: string; data: EventQuestConfigData }>('quest_configs', cacheKey);
+    if (cached?.data) {
+      return cached.data;
+    }
+  }
+
+  const candidates = [`${cleanTitle}/关卡配置`, cleanTitle];
+  for (let i = 0; i < candidates.length; i++) {
+    const targetTitle = candidates[i];
+    const qs =
+      'action=parse&page=' +
+      encodeURIComponent(targetTitle) +
+      '&prop=text|sections&disableeditsection=1&format=json&formatversion=2';
+    try {
+      const res = await fetchMooncellJson(qs);
+      if (res?.parse?.text) {
+        const cleanedHtml = sanitizeWikiHtml(res.parse.text);
+        const sections = (res.parse.sections || []).map((s: any) => ({
+          index: String(s.index || ''),
+          line: String(s.line || '').replace(/<[^>]+>/g, ''),
+          anchor: String(s.anchor || ''),
+          level: String(s.level || '2'),
+        }));
+        const data: EventQuestConfigData = {
+          pageTitle: res.parse.title || targetTitle,
+          isSubpage: i === 0,
+          sections,
+          html: cleanedHtml,
+          fetchedAt: new Date().toLocaleString('zh-CN', { hour12: false }),
+        };
+        await idbPut('quest_configs', { key: cacheKey, data });
+        return data;
+      }
+    } catch {
+      // try next candidate
+    }
+  }
+  throw new Error('未能获取到该活动的关卡配置（可能处于离线状态或站点尚未建立关卡子页面）');
+}
 
 export async function loadCatalogSummary(): Promise<CatalogSummaryPayload> {
-  const resp = await fetch(`./data/catalog_summary.json?v=${DATA_VERSION}`);
-  if (!resp.ok) {
-    throw new Error('无法加载离线图鉴索引');
+  const cachedBlob = await idbGet<{ key: string; data: CatalogSummaryPayload }>(
+    'data_blobs',
+    'catalog_summary.json'
+  );
+  let data: CatalogSummaryPayload;
+  if (cachedBlob?.data) {
+    data = structuredClone(cachedBlob.data);
+  } else {
+    const resp = await fetch(`./data/catalog_summary.json?v=${DATA_VERSION}`);
+    if (!resp.ok) {
+      throw new Error('无法加载离线图鉴索引');
+    }
+    data = await resp.json();
   }
-  const data: CatalogSummaryPayload = await resp.json();
 
   const extraSvts = await idbGetAll<ServantSummary>('servants');
   if (extraSvts.length > 0) {
@@ -114,10 +300,19 @@ export async function loadServantDetail(id: number): Promise<ServantDetail | nul
   const chunkEnd = chunkStart + 49;
   const key = `${chunkStart}_${chunkEnd}`;
   if (!svtChunkCache.has(key)) {
-    const resp = await fetch(`./data/servants/svt_${key}.json?v=${DATA_VERSION}`);
-    if (!resp.ok) return null;
-    const json = await resp.json();
-    svtChunkCache.set(key, json);
+    const relPath = `servants/svt_${key}.json`;
+    const cachedChunk = await idbGet<{ key: string; data: Record<string, ServantDetail> }>(
+      'data_blobs',
+      relPath
+    );
+    if (cachedChunk?.data) {
+      svtChunkCache.set(key, cachedChunk.data);
+    } else {
+      const resp = await fetch(`./data/${relPath}?v=${DATA_VERSION}`);
+      if (!resp.ok) return null;
+      const json = await resp.json();
+      svtChunkCache.set(key, json);
+    }
   }
   const chunk = svtChunkCache.get(key);
   return chunk ? chunk[String(id)] || null : null;
@@ -131,13 +326,106 @@ export async function loadCraftEssenceDetail(id: number): Promise<CraftEssenceDe
   const chunkEnd = chunkStart + 199;
   const key = `${chunkStart}_${chunkEnd}`;
   if (!ceChunkCache.has(key)) {
-    const resp = await fetch(`./data/ces/ce_${key}.json?v=${DATA_VERSION}`);
-    if (!resp.ok) return null;
-    const json = await resp.json();
-    ceChunkCache.set(key, json);
+    const relPath = `ces/ce_${key}.json`;
+    const cachedChunk = await idbGet<{ key: string; data: Record<string, CraftEssenceDetail> }>(
+      'data_blobs',
+      relPath
+    );
+    if (cachedChunk?.data) {
+      ceChunkCache.set(key, cachedChunk.data);
+    } else {
+      const resp = await fetch(`./data/${relPath}?v=${DATA_VERSION}`);
+      if (!resp.ok) return null;
+      const json = await resp.json();
+      ceChunkCache.set(key, json);
+    }
   }
   const chunk = ceChunkCache.get(key);
   return chunk ? chunk[String(id)] || null : null;
+}
+
+/**
+ * 方案 1：从 GitHub 云端自动构建的完整数据包增量拉取变化的 JSON 分片并持久化到本地 IndexedDB。
+ * 覆盖：新英灵完整技能/宝具/羁绊/立绘、新概念礼装、新魔术礼装、新灵衣、新素材与掉落效率。
+ */
+export async function syncFromCloudManifest(
+  onProgress?: (phase: string, percent: number) => void
+): Promise<{
+  updatedFiles: string[];
+  catalogUpdated: boolean;
+  extrasUpdated: boolean;
+  eventsUpdated: boolean;
+}> {
+  onProgress?.('正在检查云端完整数据包清单...', 12);
+  const remoteManifest = await fetchCloudJson<CloudManifest>('cloud_manifest.json');
+  if (!remoteManifest?.files) {
+    return { updatedFiles: [], catalogUpdated: false, extrasUpdated: false, eventsUpdated: false };
+  }
+
+  // 合并 APK 内置基线哈希与本地已同步哈希
+  let localHashes: Record<string, string> = {};
+  try {
+    const baseResp = await fetch(`./data/cloud_manifest.json?v=${DATA_VERSION}`);
+    if (baseResp.ok) {
+      const baseManifest: CloudManifest = await baseResp.json();
+      localHashes = { ...(baseManifest.files || {}) };
+    }
+  } catch {
+    // ignore if local manifest missing
+  }
+  const savedHashesObj = await idbGet<{ key: string; hashes?: Record<string, string> }>(
+    'meta',
+    'cloud_file_hashes'
+  );
+  if (savedHashesObj?.hashes) {
+    localHashes = { ...localHashes, ...savedHashesObj.hashes };
+  }
+
+  const changedFiles = Object.entries(remoteManifest.files)
+    .filter(([rel, hash]) => rel !== 'story_wars.json' && localHashes[rel] !== hash)
+    .map(([rel]) => rel);
+
+  if (changedFiles.length === 0) {
+    return { updatedFiles: [], catalogUpdated: false, extrasUpdated: false, eventsUpdated: false };
+  }
+
+  const updatedFiles: string[] = [];
+  let catalogUpdated = false;
+  let extrasUpdated = false;
+  let eventsUpdated = false;
+
+  for (let i = 0; i < changedFiles.length; i++) {
+    const rel = changedFiles[i];
+    onProgress?.(
+      `正在增量下载云端完整数据包 (${i + 1}/${changedFiles.length})...`,
+      15 + Math.round(((i + 1) / changedFiles.length) * 35)
+    );
+    try {
+      const payload = await fetchCloudJson<any>(rel);
+      await idbPut('data_blobs', { key: rel, data: payload });
+      localHashes[rel] = remoteManifest.files[rel];
+      updatedFiles.push(rel);
+
+      if (rel === 'catalog_summary.json') catalogUpdated = true;
+      else if (rel === 'extras_catalog.json') extrasUpdated = true;
+      else if (rel === 'events_banners.json') eventsUpdated = true;
+      else if (rel.startsWith('servants/')) svtChunkCache.clear();
+      else if (rel.startsWith('ces/')) ceChunkCache.clear();
+    } catch {
+      // 单个分片失败跳过，下次点击更新会继续补齐
+    }
+  }
+
+  if (updatedFiles.length > 0) {
+    await idbPut('meta', {
+      key: 'cloud_file_hashes',
+      hashes: localHashes,
+      version: remoteManifest.version,
+      updatedAt: remoteManifest.updatedAt,
+    });
+  }
+
+  return { updatedFiles, catalogUpdated, extrasUpdated, eventsUpdated };
 }
 
 export interface UpdateProgress {
@@ -147,8 +435,126 @@ export interface UpdateProgress {
   total: number;
   updatedServants: number;
   updatedCes: number;
+  updatedEvents?: number;
+  updatedBanners?: number;
   lastUpdated?: string;
   error?: string;
+}
+
+/** 轻量级纯 JS MD5（UTF-8），用于拼接 Mooncell media.fgo.wiki 静态图片地址 */
+function md5Hex(input: string): string {
+  const utf8 = new TextEncoder().encode(input);
+  const len = utf8.length;
+  const wordsLen = (((len + 8) >>> 6) + 1) << 4;
+  const words = new Uint32Array(wordsLen);
+  for (let i = 0; i < len; i++) {
+    words[i >>> 2] |= utf8[i] << ((i & 3) << 3);
+  }
+  words[len >>> 2] |= 0x80 << ((len & 3) << 3);
+  words[wordsLen - 2] = (len << 3) >>> 0;
+  words[wordsLen - 1] = (len >>> 29) >>> 0;
+
+  let a = 0x67452301;
+  let b = 0xefcdab89;
+  let c = 0x98badcfe;
+  let d = 0x10325476;
+
+  const s = [
+    7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22,
+    5, 9, 14, 20, 5, 9, 14, 20, 5, 9, 14, 20, 5, 9, 14, 20,
+    4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16, 23,
+    6, 10, 15, 21, 6, 10, 15, 21, 6, 10, 15, 21, 6, 10, 15, 21,
+  ];
+  const k = new Uint32Array(64);
+  for (let i = 0; i < 64; i++) {
+    k[i] = Math.floor(Math.abs(Math.sin(i + 1)) * 0x100000000) >>> 0;
+  }
+
+  for (let i = 0; i < wordsLen; i += 16) {
+    let aa = a;
+    let bb = b;
+    let cc = c;
+    let dd = d;
+    for (let j = 0; j < 64; j++) {
+      let f = 0;
+      let g = 0;
+      if (j < 16) {
+        f = (bb & cc) | (~bb & dd);
+        g = j;
+      } else if (j < 32) {
+        f = (dd & bb) | (~dd & cc);
+        g = (5 * j + 1) & 15;
+      } else if (j < 48) {
+        f = bb ^ cc ^ dd;
+        g = (3 * j + 5) & 15;
+      } else {
+        f = cc ^ (bb | ~dd);
+        g = (7 * j) & 15;
+      }
+      const tmp = dd;
+      dd = cc;
+      cc = bb;
+      const sum = (aa + f + k[j] + words[i + g]) >>> 0;
+      bb = (bb + ((sum << s[j]) | (sum >>> (32 - s[j])))) >>> 0;
+      aa = tmp;
+    }
+    a = (a + aa) >>> 0;
+    b = (b + bb) >>> 0;
+    c = (c + cc) >>> 0;
+    d = (d + dd) >>> 0;
+  }
+
+  const toHex = (n: number) => {
+    let out = '';
+    for (let i = 0; i < 4; i++) {
+      out += ((n >>> (i * 8)) & 0xff).toString(16).padStart(2, '0');
+    }
+    return out;
+  };
+  return toHex(a) + toHex(b) + toHex(c) + toHex(d);
+}
+
+function buildMooncellMediaUrl(filename: string, thumbWidth?: number): string {
+  let clean = (filename || '').trim().replace(/ /g, '_');
+  if (!clean) return '';
+  if (clean.startsWith('文件:') || clean.startsWith('File:')) {
+    clean = clean.split(':').slice(1).join(':').trim();
+  }
+  if (!clean) return '';
+  clean = clean[0].toUpperCase() + clean.slice(1);
+  const h = md5Hex(clean);
+  const q = encodeURIComponent(clean);
+  if (thumbWidth) {
+    return `https://media.fgo.wiki/thumb/${h[0]}/${h.slice(0, 2)}/${q}/${thumbWidth}px-${q}`;
+  }
+  return `https://media.fgo.wiki/${h[0]}/${h.slice(0, 2)}/${q}`;
+}
+
+function smwFirstStr(arr: any): string {
+  if (!Array.isArray(arr) || arr.length === 0) return '';
+  const v = arr[0];
+  if (v && typeof v === 'object') return String(v.fulltext || v.raw || '');
+  return String(v || '');
+}
+
+function smwFirstTs(arr: any): number {
+  if (!Array.isArray(arr) || arr.length === 0) return 0;
+  const v = arr[0];
+  if (v && typeof v === 'object' && v.timestamp) {
+    const n = parseInt(String(v.timestamp), 10);
+    return Number.isNaN(n) ? 0 : n;
+  }
+  return 0;
+}
+
+function smwListTitles(arr: any): string[] {
+  const out: string[] = [];
+  if (!Array.isArray(arr)) return out;
+  for (const v of arr) {
+    const t = (v && typeof v === 'object' ? String(v.fulltext || '') : String(v || '')).trim();
+    if (t && !out.includes(t)) out.push(t);
+  }
+  return out;
 }
 
 function parseCatalogBlocks(rawText: string): Record<string, string>[] {
@@ -205,10 +611,19 @@ async function fetchMooncellJson(queryString: string): Promise<any> {
 export async function syncFromMooncell(
   currentServants: ServantSummary[],
   currentCes: CraftEssenceSummary[],
-  onProgress: (p: UpdateProgress) => void
-): Promise<{ newServants: ServantSummary[]; newCes: CraftEssenceSummary[] }> {
+  onProgress: (p: UpdateProgress) => void,
+  currentEvents: EventSummary[] = [],
+  currentBanners: BannerSummary[] = []
+): Promise<{
+  newServants: ServantSummary[];
+  newCes: CraftEssenceSummary[];
+  syncedEvents: EventSummary[];
+  syncedBanners: BannerSummary[];
+}> {
   let updatedServants = 0;
   let updatedCes = 0;
+  let updatedEvents = 0;
+  let updatedBanners = 0;
 
   onProgress({
     running: true,
@@ -358,20 +773,171 @@ export async function syncFromMooncell(
   }
 
   const nowStr = new Date().toLocaleString('zh-CN', { hour12: false });
+
+  // 同步最新活动一览（最近 60 条）与卡池一览（最近 80 条），覆盖并持久化至 IndexedDB
+  const syncedEvents: EventSummary[] = [];
+  const syncedBanners: BannerSummary[] = [];
+  const existingEvMap = new Map(currentEvents.map((e) => [e.title, e]));
+  const existingBnMap = new Map(currentBanners.map((b) => [b.title, b]));
+
+  onProgress({
+    running: true,
+    phase: '正在同步最新活动与卡池排期...',
+    current: 82,
+    total: 100,
+    updatedServants,
+    updatedCes,
+  });
+
+  try {
+    const evQuery =
+      '[[分类:有活动信息的页面]][[EventType::Event||Campaign||Other]]' +
+      '|?EventNameCN|?EventNameJP|?EventStartCN|?EventEndCN|?EventStartJP|?EventEndJP' +
+      '|?EventImageCN|?EventImageJP|?EventType|?EventRecentServer' +
+      '|sort=EventStartJP|order=desc|limit=60|offset=0';
+    const evRes = await fetchMooncellJson(
+      `action=ask&query=${encodeURIComponent(evQuery)}&format=json&formatversion=2`
+    );
+    const evResults = evRes?.query?.results;
+    if (evResults && typeof evResults === 'object') {
+      for (const [pageTitle, obj] of Object.entries<any>(evResults)) {
+        const po = obj?.printouts || {};
+        const startCn = smwFirstTs(po.EventStartCN);
+        const endCn = smwFirstTs(po.EventEndCN);
+        const startJp = smwFirstTs(po.EventStartJP);
+        const endJp = smwFirstTs(po.EventEndJP);
+        const imgFile = smwFirstStr(po.EventImageCN) || smwFirstStr(po.EventImageJP);
+        const ev: EventSummary = {
+          title: pageTitle,
+          nameCn: smwFirstStr(po.EventNameCN) || pageTitle,
+          nameJp: smwFirstStr(po.EventNameJP),
+          startCn,
+          endCn,
+          startJp,
+          endJp,
+          type: smwFirstStr(po.EventType) || 'Event',
+          server: smwFirstStr(po.EventRecentServer) || (startCn > 0 ? 'cn' : 'jp'),
+          bannerThumb: imgFile ? buildMooncellMediaUrl(imgFile, 480) : '',
+          bannerFull: imgFile ? buildMooncellMediaUrl(imgFile) : '',
+        };
+        syncedEvents.push(ev);
+        const old = existingEvMap.get(pageTitle);
+        if (!old || old.startCn !== ev.startCn || old.endCn !== ev.endCn || old.nameCn !== ev.nameCn) {
+          updatedEvents++;
+        }
+      }
+    }
+  } catch {
+    // 活动增量同步失败不阻断整体流程
+  }
+
+  onProgress({
+    running: true,
+    phase: '正在同步最新推荐召唤卡池...',
+    current: 92,
+    total: 100,
+    updatedServants,
+    updatedCes,
+    updatedEvents,
+  });
+
+  try {
+    const bnQuery =
+      '[[SummonStartJP::+]]' +
+      '|?SummonTitleCN|?SummonTitleJP|?SummonImage|?SummonImageCN|?SummonImageJP' +
+      '|?SummonStartCN|?SummonEndCN|?SummonStartJP|?SummonEndJP' +
+      '|?推荐召唤从者|?推荐召唤礼装|?SummonLuckybag' +
+      '|sort=SummonStartJP|order=desc|limit=80|offset=0';
+    const bnRes = await fetchMooncellJson(
+      `action=ask&query=${encodeURIComponent(bnQuery)}&format=json&formatversion=2`
+    );
+    const bnResults = bnRes?.query?.results;
+    if (bnResults && typeof bnResults === 'object') {
+      for (const [pageTitle, obj] of Object.entries<any>(bnResults)) {
+        const po = obj?.printouts || {};
+        const imgFile =
+          smwFirstStr(po.SummonImageCN) ||
+          smwFirstStr(po.SummonImage) ||
+          smwFirstStr(po.SummonImageJP);
+        const bn: BannerSummary = {
+          title: pageTitle,
+          titleCn: smwFirstStr(po.SummonTitleCN) || pageTitle,
+          titleJp: smwFirstStr(po.SummonTitleJP),
+          startCn: smwFirstTs(po.SummonStartCN),
+          endCn: smwFirstTs(po.SummonEndCN),
+          startJp: smwFirstTs(po.SummonStartJP),
+          endJp: smwFirstTs(po.SummonEndJP),
+          bannerThumb: imgFile ? buildMooncellMediaUrl(imgFile, 480) : '',
+          bannerFull: imgFile ? buildMooncellMediaUrl(imgFile) : '',
+          servants: smwListTitles(po['推荐召唤从者']),
+          ces: smwListTitles(po['推荐召唤礼装']),
+          luckybag: Boolean(po.SummonLuckybag && po.SummonLuckybag.length > 0),
+        };
+        syncedBanners.push(bn);
+        const old = existingBnMap.get(pageTitle);
+        if (
+          !old ||
+          old.startCn !== bn.startCn ||
+          old.endCn !== bn.endCn ||
+          old.servants.length !== bn.servants.length
+        ) {
+          updatedBanners++;
+        }
+      }
+    }
+  } catch {
+    // 卡池增量同步失败不阻断整体流程
+  }
+
+  // 与历史已保存的覆盖层合并后再持久化到 IndexedDB，保证多次更新累积不丢失
+  if (syncedEvents.length > 0 || syncedBanners.length > 0) {
+    const prev = await idbGet<{
+      key: string;
+      events?: EventSummary[];
+      banners?: BannerSummary[];
+    }>('meta', 'events_banners_overrides');
+
+    const mergedEvMap = new Map((prev?.events || []).map((e) => [e.title, e]));
+    for (const e of syncedEvents) mergedEvMap.set(e.title, e);
+
+    const mergedBnMap = new Map((prev?.banners || []).map((b) => [b.title, b]));
+    for (const b of syncedBanners) mergedBnMap.set(b.title, b);
+
+    await idbPut('meta', {
+      key: 'events_banners_overrides',
+      events: Array.from(mergedEvMap.values()),
+      banners: Array.from(mergedBnMap.values()),
+      updatedAt: nowStr,
+    });
+  }
+
   await idbPut('meta', { key: 'lastUpdated', value: nowStr });
+
+  const deltaParts: string[] = [];
+  if (updatedServants > 0) deltaParts.push(`英灵 +${updatedServants}`);
+  if (updatedCes > 0) deltaParts.push(`礼装 +${updatedCes}`);
+  if (updatedEvents > 0) deltaParts.push(`活动更新 ${updatedEvents}`);
+  if (updatedBanners > 0) deltaParts.push(`卡池更新 ${updatedBanners}`);
 
   onProgress({
     running: false,
     phase:
-      updatedServants === 0 && updatedCes === 0
-        ? `同步成功：当前已是最新数据（Mooncell 云端英灵 ${onlineSvtTotal} 骑 · 礼装 ${onlineCeTotal} 张）`
-        : `同步完成：新增 ${updatedServants} 骑英灵、${updatedCes} 张概念礼装`,
+      deltaParts.length === 0
+        ? `同步成功：当前已是最新数据（英灵 ${onlineSvtTotal} · 礼装 ${onlineCeTotal} · 活动/卡池已核对）`
+        : `同步完成：${deltaParts.join(' · ')}（已保存本地）`,
     current: 100,
     total: 100,
     updatedServants,
     updatedCes,
+    updatedEvents,
+    updatedBanners,
     lastUpdated: nowStr,
   });
 
-  return { newServants: addedSvts, newCes: addedCes };
+  return {
+    newServants: addedSvts,
+    newCes: addedCes,
+    syncedEvents,
+    syncedBanners,
+  };
 }

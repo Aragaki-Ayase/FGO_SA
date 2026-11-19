@@ -1,9 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { X, Maximize2, User } from 'lucide-react';
 import { CraftEssenceDetail } from '../types';
 import { SmartImage } from './SmartImage';
 import { FormattedEffectText } from './SkillAndNpTables';
 import { CardLightbox } from './CardLightbox';
+import { BackToTopButton } from './BackToTopButton';
 import { useBackClose } from '../utils/backNavigation';
 
 interface CeDetailModalProps {
@@ -23,6 +24,7 @@ export const CeDetailModal: React.FC<CeDetailModalProps> = ({
 }) => {
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [showJp, setShowJp] = useState(false);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
 
   useBackClose(Boolean(ce || loading), onClose);
 
@@ -61,7 +63,7 @@ export const CeDetailModal: React.FC<CeDetailModalProps> = ({
               </button>
             </header>
 
-            <div className="detail-scroll-body">
+            <div className="detail-scroll-body" ref={scrollRef}>
               <div className="detail-hero-grid">
                 <div className="detail-art-box">
                   <div
@@ -192,6 +194,8 @@ export const CeDetailModal: React.FC<CeDetailModalProps> = ({
                 </div>
               )}
             </div>
+
+            <BackToTopButton targetRef={scrollRef} variant="modal" />
 
             <CardLightbox
               open={lightboxOpen}
