@@ -16,7 +16,7 @@ const PROGRESS_STORAGE_KEY = 'mooncell_story_progress_v1';
 const STORY_DATA_VERSION = '20261119v5';
 const STORY_OVERRIDES_KEY = 'story_wars_overrides_v3';
 const WAR_DETAIL_VERSION = 2;
-const SCRIPT_PARSER_VERSION = 4;
+const SCRIPT_PARSER_VERSION = 5;
 
 const REAL_MAIN_BANNER_MAP: Record<number, string> = {
   100: './assets/story/wars/war_100.webp',
@@ -748,7 +748,11 @@ function cleanInlineMarkup(raw: string): string {
   // 换行与破折号
   text = text.replace(/\[r\]/g, '\n');
   text = text.replace(/\[line\s+\d+\]/g, '——');
-  // 清除其余行内演出控制码（如 [f ...] [s ...] [wt ...] 等）
+  // 清除 Unity NGUI 颜色码（如 [51d4ff] / [51d4ffff]）、颜色闭合符 [-] 及样式闭合标签（如 [/b] [/i] [/u] [/s] [/c]）
+  text = text.replace(/\[-\]/g, '');
+  text = text.replace(/\[[0-9a-fA-F]{6}(?:[0-9a-fA-F]{2})?\]/g, '');
+  text = text.replace(/\[\/[a-zA-Z0-9_-]+\]/g, '');
+  // 清除其余行内演出控制码（如 [f ...] [s ...] [wt ...] [b] [i] 等）
   text = text.replace(/\[[a-zA-Z0-9_]+(?:\s+[^\]]*)?\]/g, '');
   // 压缩多余空白
   text = text.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
@@ -805,8 +809,9 @@ function buildBgAsset(bgId: string, enableFullScreen: boolean): { url: string; f
 }
 
 function cleanSpeakerName(rawSpeaker: string): string {
-  // 清洗 FGO 脚本中常见的槽位前缀，如 "B：希翁?" 或 "A:玛修" -> "希翁?" / "玛修"
-  return rawSpeaker.replace(/^[A-Za-z]\s*[：:]\s*/, '').trim();
+  // 先清除 NGUI 颜色码/闭合符/注音等富文本标签，再移除 FGO 槽位前缀（如 "B：希翁?"、"A:[51d4ff]达·芬奇[-]"）
+  const stripped = cleanInlineMarkup(rawSpeaker).replace(/\n+/g, ' ').trim();
+  return stripped.replace(/^[A-Za-z]\s*[：:]\s*/, '').trim();
 }
 
 export function parseStoryScript(rawText: string): StoryBlock[] {
@@ -1006,7 +1011,7 @@ export function parseStoryScript(rawText: string): StoryBlock[] {
       case 'charaSet': {
         const slot = parts[1];
         const charaId = parts[2];
-        const name = parts.slice(4).join(' ').trim();
+        const name = cleanSpeakerName(parts.slice(4).join(' ').trim());
         if (slot && charaId && /^\d+$/.test(charaId)) {
           if (isDummyChara(charaId, name)) {
             slotMap.delete(slot);

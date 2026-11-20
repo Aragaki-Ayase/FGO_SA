@@ -134,3 +134,15 @@
   - [storyService.ts](file:///e:/work/FGO_SA/app/src/services/storyService.ts)：新增 `isDummyChara`（过滤 `dummy` / `ダミー` / `エフェクト` / `特效用` / `演出用` 等占位角色及无名/特效用途的 `98115000`）与 `isOffscreenCoord`（过滤坐标 `|x| >= 1000` 或 `|y| >= 1000` 的屏幕外 `charaPut`/`charaPutFSR`/`charaFadein`），并过滤透明度 `<= 0.01` 的 `charaFadeTime`。
   - 升级 `SCRIPT_PARSER_VERSION = 4`，重新打开章节时自动刷新旧缓存剔除占位立绘。
 - **验证状态**：`tsc --noEmit` 0 错误通过，`npm.cmd --prefix app run build`（`4.00s`）构建成功，`npm.cmd --prefix app run android:sync`（`5.75s`）与 `.\gradlew.bat assembleDebug`（`6s`）打包成功，最新 APK `app/android/app/build/outputs/apk/debug/app-debug.apk`（`141.99 MB`，`2026/11/19 22:23:54`）。
+
+---
+
+## 12. 清除剧情人物名与正文中的 NGUI 富文本控制标签（2026-11-20）
+
+- **根因**：`cleanSpeakerName` 未清洗 Unity NGUI 颜色码与闭合符（如 `[51d4ff]达·芬奇[-]`），且 `cleanInlineMarkup` 正则未匹配 `[-]` 及 `[/b]`/`[/i]`/`[/u]`/`[/s]`/`[/c]` 等含 `-`/`/` 的闭合标签。
+- **改动**：
+  - [storyService.ts](file:///d:/git_proj/FGO_SA/app/src/services/storyService.ts)：
+    - 在 `cleanInlineMarkup` 中新增剔除 `[-]`、6/8 位十六进制颜色码 `\[[0-9a-fA-F]{6}(?:[0-9a-fA-F]{2})?\]` 及所有闭合控制标签 `\[\/[a-zA-Z0-9_-]+\]`；
+    - 在 `cleanSpeakerName` 中先执行 `cleanInlineMarkup` 再去槽位前缀，并同步应用于 `charaSet` 角色立绘名；
+    - 升级 `SCRIPT_PARSER_VERSION = 5`，自动刷新已缓存旧剧本。
+- **验证状态**：`tsc --noEmit` **0 错误通过**。
