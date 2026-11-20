@@ -203,3 +203,14 @@
   - `app\node_modules\.bin\tsc.cmd -p app\tsconfig.json --noEmit`：**0 错误通过**。
   - `npm run build --prefix app`：`vite build` 构建成功（`dist/index.html`、`dist/bundle/index-*.css` / `.js` 产出正常，1,589 个模块）。
   - **严格按用户要求**：未执行 Git 提交/推送，未执行 `android:sync` 与 APK 打包。
+
+---
+
+## 17. 修复云端数据更新 404 与 Actions 定时错峰配置（2026-11-20）
+
+- **排查结论**：
+  - 手机 App 点击「更新数据」未拉取到 `#413 苍崎青子` 与 `#415 久远寺有珠` 强化的根因：GitHub 仓库 `Aragaki-Ayase/FGO_SA` 此前为 **Private（私有）**，导致 `cdn.jsdelivr.net` 与 `raw.githubusercontent.com` 返回 404；用户将仓库改为 **Public（公开）** 后已实测两条线路均恢复 `HTTP 200` 且返回 `2026-11-20 12:42 UTC`（含青子/有珠强化）最新清单，无需修改前端或重新打包 APK。
+  - 19:30 定时未触发根因：GitHub Actions 在整半点 `:30` 洪峰队列易延迟或丢弃，且当天刚修改 cron。
+- **改动**：
+  - [update-catalog-data.yml](file:///e:/work/FGO_SA/.github/workflows/update-catalog-data.yml)：将 `schedule` 从 `'30 11 * * *'` 调整为错峰冷门分钟 `'23 11 * * *'`（北京时间 19:23）并增加 `'17 12 * * *'`（北京时间 20:17）兜底。
+- **待同步**：当前本地目录 `e:\work\FGO_SA` 无 `.git` 文件夹，需将 `update-catalog-data.yml` 同步推送至 GitHub `main` 分支后定时新配置才会生效。
