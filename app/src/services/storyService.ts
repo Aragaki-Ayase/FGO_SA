@@ -140,7 +140,7 @@ async function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-async function fetchAtlasJson(apiPath: string, retries = 3): Promise<any> {
+async function fetchAtlasJson(apiPath: string, retries = 2, timeoutMs = 8000): Promise<any> {
   const fullUrl = `https://api.atlasacademy.io${apiPath}`;
   let lastErr: any = null;
 
@@ -150,29 +150,37 @@ async function fetchAtlasJson(apiPath: string, retries = 3): Promise<any> {
         const res = await CapacitorHttp.get({
           url: fullUrl,
           headers: { 'User-Agent': 'MooncellOfflineApp/1.0' },
+          connectTimeout: Math.min(5000, timeoutMs),
+          readTimeout: timeoutMs,
         });
         if (res.status !== 200) throw new Error(`HTTP ${res.status}`);
         return typeof res.data === 'string' ? JSON.parse(res.data) : res.data;
       }
 
-      // Web 端优先走 Vite 代理，回退直连（Atlas Academy 允许 CORS）
-      const proxyResp = await fetch(`/atlas-api${apiPath}`);
-      const ct = proxyResp.headers.get('content-type') || '';
-      if (proxyResp.ok && ct.includes('json')) {
-        return await proxyResp.json();
+      const controller = new AbortController();
+      const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+      try {
+        // Web 端优先走 Vite 代理，回退直连（Atlas Academy 允许 CORS）
+        const proxyResp = await fetch(`/atlas-api${apiPath}`, { signal: controller.signal });
+        const ct = proxyResp.headers.get('content-type') || '';
+        if (proxyResp.ok && ct.includes('json')) {
+          return await proxyResp.json();
+        }
+        const directResp = await fetch(fullUrl, { signal: controller.signal });
+        if (!directResp.ok) throw new Error(`HTTP ${directResp.status}`);
+        return await directResp.json();
+      } finally {
+        window.clearTimeout(timer);
       }
-      const directResp = await fetch(fullUrl);
-      if (!directResp.ok) throw new Error(`HTTP ${directResp.status}`);
-      return await directResp.json();
     } catch (err) {
       lastErr = err;
-      if (i < retries - 1) await sleep(500 * (i + 1));
+      if (i < retries - 1) await sleep(400 * (i + 1));
     }
   }
   throw lastErr || new Error('连接 Atlas Academy 失败');
 }
 
-async function fetchAtlasText(rawUrl: string, retries = 3): Promise<string> {
+async function fetchAtlasText(rawUrl: string, retries = 2, timeoutMs = 10000): Promise<string> {
   let lastErr: any = null;
 
   for (let i = 0; i < retries; i++) {
@@ -181,25 +189,33 @@ async function fetchAtlasText(rawUrl: string, retries = 3): Promise<string> {
         const res = await CapacitorHttp.get({
           url: rawUrl,
           headers: { 'User-Agent': 'MooncellOfflineApp/1.0' },
+          connectTimeout: 5000,
+          readTimeout: timeoutMs,
         });
         if (res.status !== 200) throw new Error(`HTTP ${res.status}`);
         return typeof res.data === 'string' ? res.data : String(res.data ?? '');
       }
 
-      const proxied = toProxiedStaticUrl(rawUrl);
-      const resp = await fetch(proxied);
-      if (resp.ok) {
-        const text = await resp.text();
-        if (!text.startsWith('<!DOCTYPE') && !text.startsWith('<html')) {
-          return text;
+      const controller = new AbortController();
+      const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+      try {
+        const proxied = toProxiedStaticUrl(rawUrl);
+        const resp = await fetch(proxied, { signal: controller.signal });
+        if (resp.ok) {
+          const text = await resp.text();
+          if (!text.startsWith('<!DOCTYPE') && !text.startsWith('<html')) {
+            return text;
+          }
         }
+        const directResp = await fetch(rawUrl, { signal: controller.signal });
+        if (!directResp.ok) throw new Error(`HTTP ${directResp.status}`);
+        return await directResp.text();
+      } finally {
+        window.clearTimeout(timer);
       }
-      const directResp = await fetch(rawUrl);
-      if (!directResp.ok) throw new Error(`HTTP ${directResp.status}`);
-      return await directResp.text();
     } catch (err) {
       lastErr = err;
-      if (i < retries - 1) await sleep(500 * (i + 1));
+      if (i < retries - 1) await sleep(400 * (i + 1));
     }
   }
   throw lastErr || new Error('加载剧情脚本失败');
@@ -286,9 +302,9 @@ export async function syncStoryWarsFromAtlas(): Promise<{
   addedCount: number;
 }> {
   const [rawList, cnEvents, jpEvents] = await Promise.all([
-    fetchAtlasJson('/export/CN/basic_war.json'),
-    fetchAtlasJson('/export/CN/basic_event.json').catch(() => []),
-    fetchAtlasJson('/export/JP/basic_event.json').catch(() => []),
+    fetchAtlasJson('/export/CN/basic_war.json', 1, 6000),
+    fetchAtlasJson('/export/CN/basic_event.json', 1, 6000).catch(() => []),
+    fetchAtlasJson('/export/JP/basic_event.json', 1, 6000).catch(() => []),
   ]);
 
   const cnStartMap = new Map<number, number>();

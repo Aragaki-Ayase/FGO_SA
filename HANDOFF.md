@@ -214,3 +214,15 @@
 - **改动**：
   - [update-catalog-data.yml](file:///e:/work/FGO_SA/.github/workflows/update-catalog-data.yml)：将 `schedule` 从 `'30 11 * * *'` 调整为错峰冷门分钟 `'23 11 * * *'`（北京时间 19:23）并增加 `'17 12 * * *'`（北京时间 20:17）兜底。
 - **待同步**：当前本地目录 `e:\work\FGO_SA` 无 `.git` 文件夹，需将 `update-catalog-data.yml` 同步推送至 GitHub `main` 分支后定时新配置才会生效。
+
+---
+
+## 18. 云端更新多 CDN 竞速选路与全链路超时防卡死（2026-11-20）
+
+- **改动**：
+  - [dataService.ts](file:///e:/work/FGO_SA/app/src/services/dataService.ts)：
+    - 将 `CLOUD_DATA_BASES` 扩展为 5 条已验证线路（`fastly.jsdelivr.net`、`gcore.jsdelivr.net`、`cdn.jsdelivr.net`、`ghfast.top`、`raw.githubusercontent.com`）。
+    - 新增 `raceCloudManifest()` 并行竞速拉取 `cloud_manifest.json`，谁最先返回即锁定 `preferredCloudBase` 供后续分片复用，失败时快速回退其余线路。
+    - 为 `CapacitorHttp.get` 与 Web `fetch` 统一增加超时保护（云端连接 5s / 读取 8~15s，Mooncell 连接 6s / 读取 12s）。
+  - [storyService.ts](file:///e:/work/FGO_SA/app/src/services/storyService.ts)：为 `fetchAtlasJson` 与 `fetchAtlasText` 增加 `connectTimeout: 5000` / `readTimeout: 8000~10000` 与 `AbortController` 超时，并将 `syncStoryWarsFromAtlas` 设为单次 6s 快速超时，避免国内不挂代理时卡死更新流程。
+- **验证状态**：`tsc --noEmit` **0 错误通过**，`npm.cmd --prefix app run android:sync`（`4.98s`）与 `.\gradlew.bat assembleDebug`（`21s`）打包成功，最新 APK `app/android/app/build/outputs/apk/debug/app-debug.apk`（`128.71 MB`，`2026/11/20 21:19:26`），并已推送至 `origin/main`。

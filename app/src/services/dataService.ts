@@ -104,9 +104,15 @@ const DATA_VERSION = '20261120v1';
 const EVENTS_BANNERS_OVERRIDES_KEY = 'events_banners_overrides_v2';
 
 const CLOUD_DATA_BASES = [
+  'https://fastly.jsdelivr.net/gh/Aragaki-Ayase/FGO_SA@main/app/public/data',
+  'https://gcore.jsdelivr.net/gh/Aragaki-Ayase/FGO_SA@main/app/public/data',
   'https://cdn.jsdelivr.net/gh/Aragaki-Ayase/FGO_SA@main/app/public/data',
+  'https://ghfast.top/https://raw.githubusercontent.com/Aragaki-Ayase/FGO_SA/main/app/public/data',
   'https://raw.githubusercontent.com/Aragaki-Ayase/FGO_SA/main/app/public/data',
 ];
+
+// 记录本轮竞速最快成功的云端线路，后续分片下载直接复用
+let preferredCloudBase: string | null = null;
 
 export interface CloudManifest {
   version: string;
@@ -115,25 +121,97 @@ export interface CloudManifest {
   files: Record<string, string>;
 }
 
-async function fetchCloudJson<T>(relPath: string): Promise<T> {
+async function fetchJsonWithTimeout<T>(
+  url: string,
+  connectTimeout = 5000,
+  readTimeout = 10000
+): Promise<T> {
+  if (Capacitor.isNativePlatform()) {
+    const res = await CapacitorHttp.get({
+      url,
+      headers: { 'User-Agent': 'MooncellOfflineApp/1.0' },
+      connectTimeout,
+      readTimeout,
+    });
+    if (res.status === 200) {
+      return typeof res.data === 'string' ? JSON.parse(res.data) : res.data;
+    }
+    throw new Error(`HTTP ${res.status}`);
+  }
+
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), readTimeout);
+  try {
+    const resp = await fetch(url, { signal: controller.signal });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    return await resp.json();
+  } finally {
+    window.clearTimeout(timer);
+  }
+}
+
+/**
+ * 并行竞速拉取 cloud_manifest.json：谁最先返回合法清单就锁定该线路，
+ * 避免国内网络下某个海外节点黑洞导致整条更新链路长时间卡死。
+ */
+async function raceCloudManifest(): Promise<CloudManifest> {
   const bust = `t=${Date.now()}`;
+  const tasks = CLOUD_DATA_BASES.map((base) =>
+    fetchJsonWithTimeout<CloudManifest>(`${base}/cloud_manifest.json?${bust}`, 5000, 8000).then(
+      (manifest) => {
+        if (!manifest || typeof manifest !== 'object' || !manifest.files) {
+          throw new Error('invalid manifest');
+        }
+        return { base, manifest };
+      }
+    )
+  );
+
+  // 兼容 ES2020：手写 Promise.any，任一线路率先成功即刻返回
+  const winner = await new Promise<{ base: string; manifest: CloudManifest }>((resolve, reject) => {
+    let settled = false;
+    let failedCount = 0;
+    let lastErr: any = null;
+    for (const p of tasks) {
+      p.then(
+        (val) => {
+          if (!settled) {
+            settled = true;
+            resolve(val);
+          }
+        },
+        (err) => {
+          lastErr = err;
+          failedCount++;
+          if (failedCount === tasks.length && !settled) {
+            reject(lastErr || new Error('全部云端线路均不可达'));
+          }
+        }
+      );
+    }
+  });
+
+  preferredCloudBase = winner.base;
+  return winner.manifest;
+}
+
+async function fetchCloudJson<T>(relPath: string): Promise<T> {
+  if (relPath === 'cloud_manifest.json') {
+    return (await raceCloudManifest()) as unknown as T;
+  }
+
+  const bust = `t=${Date.now()}`;
+  const orderedBases = preferredCloudBase
+    ? [preferredCloudBase, ...CLOUD_DATA_BASES.filter((b) => b !== preferredCloudBase)]
+    : CLOUD_DATA_BASES;
+
   let lastErr: any = null;
-  for (const base of CLOUD_DATA_BASES) {
+  for (const base of orderedBases) {
     const url = `${base}/${relPath}?${bust}`;
     try {
-      if (Capacitor.isNativePlatform()) {
-        const res = await CapacitorHttp.get({
-          url,
-          headers: { 'User-Agent': 'MooncellOfflineApp/1.0' },
-        });
-        if (res.status === 200) {
-          return typeof res.data === 'string' ? JSON.parse(res.data) : res.data;
-        }
-        throw new Error(`HTTP ${res.status}`);
-      }
-      const resp = await fetch(url);
-      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-      return await resp.json();
+      const data = await fetchJsonWithTimeout<T>(url, 5000, 15000);
+      preferredCloudBase = base;
+      return data;
     } catch (err) {
       lastErr = err;
     }
@@ -720,6 +798,8 @@ async function fetchMooncellJson(queryString: string): Promise<any> {
       headers: {
         'User-Agent': 'MooncellOfflineApp/1.0',
       },
+      connectTimeout: 6000,
+      readTimeout: 12000,
     });
     if (res.status !== 200) {
       throw new Error(`Mooncell API HTTP ${res.status}`);
@@ -727,19 +807,27 @@ async function fetchMooncellJson(queryString: string): Promise<any> {
     return typeof res.data === 'string' ? JSON.parse(res.data) : res.data;
   }
 
-  // Web environment: use Vite proxy `/mooncell-api` to avoid CORS block
-  const proxyResp = await fetch(`/mooncell-api?${queryString}`);
-  const contentType = proxyResp.headers.get('content-type') || '';
-  if (proxyResp.ok && contentType.includes('json')) {
-    return await proxyResp.json();
-  }
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), 12000);
+  try {
+    // Web environment: use Vite proxy `/mooncell-api` to avoid CORS block
+    const proxyResp = await fetch(`/mooncell-api?${queryString}`, { signal: controller.signal });
+    const contentType = proxyResp.headers.get('content-type') || '';
+    if (proxyResp.ok && contentType.includes('json')) {
+      return await proxyResp.json();
+    }
 
-  // Fallback direct call
-  const directResp = await fetch(`https://fgo.wiki/api.php?${queryString}&origin=*`);
-  if (!directResp.ok) {
-    throw new Error(`连接 Mooncell 失败 (HTTP ${directResp.status})`);
+    // Fallback direct call
+    const directResp = await fetch(`https://fgo.wiki/api.php?${queryString}&origin=*`, {
+      signal: controller.signal,
+    });
+    if (!directResp.ok) {
+      throw new Error(`连接 Mooncell 失败 (HTTP ${directResp.status})`);
+    }
+    return await directResp.json();
+  } finally {
+    window.clearTimeout(timer);
   }
-  return await directResp.json();
 }
 
 export async function syncFromMooncell(
