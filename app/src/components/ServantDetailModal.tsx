@@ -15,8 +15,22 @@ import {
   Loader2,
   Download,
   Check,
+  ScrollText,
+  ChevronRight,
 } from 'lucide-react';
-import { ServantDetail, MaterialStage } from '../types';
+import {
+  ServantDetail,
+  MaterialStage,
+  ServantInterludeGroup,
+  ServantValentineGroup,
+  StoryScriptEntry,
+} from '../types';
+import {
+  buildInterludeEntries,
+  buildValentineEntries,
+  interludeWarId,
+  valentineWarId,
+} from './StoryHub';
 import { SmartImage } from './SmartImage';
 import {
   ActiveSkillCard,
@@ -42,6 +56,14 @@ interface ServantDetailModalProps {
   onSelectTrait: (trait: string) => void;
   onOpenBondCe: (ceId: number) => void;
   onOpenItemByName?: (name: string) => void;
+  interludeGroup?: ServantInterludeGroup | null;
+  valentineGroup?: ServantValentineGroup | null;
+  onOpenServantStory?: (
+    title: string,
+    progressKeyId: number,
+    entries: StoryScriptEntry[],
+    startIndex?: number
+  ) => void;
 }
 
 const DREAMFIRE_POINTS = [1090000, 1230000, 1360000, 1500000, 1640000];
@@ -116,6 +138,9 @@ export const ServantDetailModal: React.FC<ServantDetailModalProps> = ({
   onSelectTrait,
   onOpenBondCe,
   onOpenItemByName,
+  interludeGroup,
+  valentineGroup,
+  onOpenServantStory,
 }) => {
   const [activeTab, setActiveTab] = useState<'combat' | 'stats' | 'bond' | 'materials' | 'lore'>('combat');
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -744,6 +769,71 @@ export const ServantDetailModal: React.FC<ServantDetailModalProps> = ({
               {/* Tab 5: Profile & Voices */}
               {activeTab === 'lore' && (
                 <div className="detail-tab-pane">
+                  {onOpenServantStory &&
+                    ((interludeGroup?.quests.length || 0) > 0 ||
+                      (valentineGroup?.scripts.length || 0) > 0) && (
+                      <div className="svt-story-shortcut-box">
+                        <div className="svt-story-shortcut-head">
+                          <BookOpen size={15} />
+                          <span>专属剧情阅读（中文脚本 · 支持离线缓存）</span>
+                        </div>
+                        <div className="svt-story-shortcut-list">
+                          {interludeGroup?.quests.map((q) => (
+                            <button
+                              key={`q-${q.questId}`}
+                              type="button"
+                              className="svt-story-shortcut-btn"
+                              onClick={() => {
+                                const allEntries = buildInterludeEntries(interludeGroup);
+                                const firstSid = q.entries[0]?.scriptId;
+                                const idx = Math.max(
+                                  0,
+                                  allEntries.findIndex((e) => e.scriptId === firstSid)
+                                );
+                                onOpenServantStory(
+                                  `${servant.nameCn} · 幕间物语`,
+                                  interludeWarId(servant.id),
+                                  allEntries,
+                                  idx
+                                );
+                              }}
+                            >
+                              <ScrollText size={15} className="svt-story-ico interlude" />
+                              <div className="svt-story-btn-text">
+                                <strong>幕间物语：{q.name}</strong>
+                                <small>
+                                  {q.spotName} · 共 {q.entries.length} 节
+                                </small>
+                              </div>
+                              <ChevronRight size={16} />
+                            </button>
+                          ))}
+                          {valentineGroup?.scripts.map((sc, sIdx) => (
+                            <button
+                              key={`v-${sc.scriptId}`}
+                              type="button"
+                              className="svt-story-shortcut-btn valentine"
+                              onClick={() =>
+                                onOpenServantStory(
+                                  `${servant.nameCn} · 情人节剧情`,
+                                  valentineWarId(servant.id),
+                                  buildValentineEntries(valentineGroup),
+                                  sIdx
+                                )
+                              }
+                            >
+                              <Heart size={15} className="svt-story-ico valentine" />
+                              <div className="svt-story-btn-text">
+                                <strong>情人节剧情：{sc.scriptName}</strong>
+                                <small>点击直接阅读中文剧情</small>
+                              </div>
+                              <ChevronRight size={16} />
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
                   <div className="lore-header-row">
                     <h3 className="pane-section-title" style={{ margin: 0 }}>
                       从者背景资料（牵绊解锁故事）

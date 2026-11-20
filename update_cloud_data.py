@@ -312,6 +312,7 @@ def build_cloud_manifest():
         "extras_catalog.json",
         "events_banners.json",
         "story_wars.json",
+        "servant_stories.json",
     ]:
         p = APP_DATA_DIR / rel
         if p.exists():
@@ -349,6 +350,12 @@ def build_cloud_manifest():
         st = json.loads(st_path.read_text(encoding="utf-8"))
         counts["storyWars"] = st.get("counts", {}).get("total", 0)
 
+    svt_st_path = APP_DATA_DIR / "servant_stories.json"
+    if svt_st_path.exists():
+        svt_st = json.loads(svt_st_path.read_text(encoding="utf-8"))
+        counts["interludeServants"] = svt_st.get("counts", {}).get("interludeServants", 0)
+        counts["valentineServants"] = svt_st.get("counts", {}).get("valentineServants", 0)
+
     manifest = {
         "version": time.strftime("%Y%m%d%H%M"),
         "updatedAt": time.strftime("%Y-%m-%d %H:%M"),
@@ -383,6 +390,7 @@ def main():
 
     run_step([sys.executable, "-X", "utf8", "collect_events_banners.py"])
     run_step([sys.executable, "-X", "utf8", "collect_story_wars.py"])
+    run_step([sys.executable, "-X", "utf8", "collect_servant_stories.py"])
     build_cloud_manifest()
 
 

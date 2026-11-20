@@ -409,7 +409,14 @@ export interface ServantFilterState {
 
 /* ========================= 剧情阅读器（Atlas Academy CN） ========================= */
 
-export type StoryWarCategory = 'part1' | 'part15' | 'part2' | 'ordeal_call' | 'event';
+export type StoryWarCategory =
+  | 'part1'
+  | 'part15'
+  | 'part2'
+  | 'ordeal_call'
+  | 'event'
+  | 'interlude'
+  | 'valentine';
 
 export interface StoryWarSummary {
   id: number;
@@ -504,4 +511,45 @@ export interface WarReadProgress {
   lastScrollTop: number;
   readScriptIds: string[];
   updatedAt: number;
+}
+
+/* ========================= 从者幕间物语与情人节剧情 ========================= */
+
+export interface ServantInterludeQuest {
+  questId: number;
+  name: string;
+  spotName: string;
+  entries: StoryScriptEntry[];
+}
+
+export interface ServantInterludeGroup {
+  svtId: number;
+  nameCn: string;
+  iconLocal: string;
+  quests: ServantInterludeQuest[];
+}
+
+export interface ServantValentineScript {
+  scriptId: string;
+  scriptUrl: string;
+  scriptName: string;
+}
+
+export interface ServantValentineGroup {
+  svtId: number;
+  nameCn: string;
+  iconLocal: string;
+  scripts: ServantValentineScript[];
+}
+
+export interface ServantStoriesPayload {
+  generatedAt: string;
+  counts: {
+    interludeServants: number;
+    interludeQuests: number;
+    valentineServants: number;
+    valentineScripts: number;
+  };
+  interludes: ServantInterludeGroup[];
+  valentines: ServantValentineGroup[];
 }

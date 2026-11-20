@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
-import { X, Maximize2, User } from 'lucide-react';
-import { CraftEssenceDetail } from '../types';
+import { X, Maximize2, User, Heart } from 'lucide-react';
+import { CraftEssenceDetail, ServantValentineScript } from '../types';
 import { SmartImage } from './SmartImage';
 import { FormattedEffectText } from './SkillAndNpTables';
 import { CardLightbox } from './CardLightbox';
@@ -13,6 +13,12 @@ interface CeDetailModalProps {
   onClose: () => void;
   onJumpToServantByTitle: (title: string) => void;
   onSelectEffectTag?: (tag: string) => void;
+  valentineStory?: {
+    svtId: number;
+    svtName: string;
+    scripts: ServantValentineScript[];
+  } | null;
+  onOpenValentineStory?: () => void;
 }
 
 export const CeDetailModal: React.FC<CeDetailModalProps> = ({
@@ -21,6 +27,8 @@ export const CeDetailModal: React.FC<CeDetailModalProps> = ({
   onClose,
   onJumpToServantByTitle,
   onSelectEffectTag,
+  valentineStory,
+  onOpenValentineStory,
 }) => {
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [showJp, setShowJp] = useState(false);
@@ -136,6 +144,19 @@ export const CeDetailModal: React.FC<CeDetailModalProps> = ({
                     >
                       <User size={15} />
                       <span>所属从者：{ce.bondServant}（点击查看英灵详情）</span>
+                    </button>
+                  )}
+
+                  {valentineStory && onOpenValentineStory && (
+                    <button
+                      type="button"
+                      className="valentine-ce-jump-btn"
+                      onClick={onOpenValentineStory}
+                    >
+                      <Heart size={15} />
+                      <span>
+                        阅读对应情人节剧情：{valentineStory.scripts[0]?.scriptName || valentineStory.svtName}
+                      </span>
                     </button>
                   )}
 

@@ -10,6 +10,7 @@ import {
   CraftEssenceDetail,
   ServantSummary,
   CraftEssenceSummary,
+  ServantStoriesPayload,
 } from '../types';
 
 const svtChunkCache = new Map<string, Record<string, ServantDetail>>();
@@ -151,6 +152,21 @@ export async function loadExtrasCatalog(): Promise<ExtrasCatalogPayload> {
   const resp = await fetch(`./data/extras_catalog.json?v=${DATA_VERSION}`);
   if (!resp.ok) {
     throw new Error('无法加载魔术礼装/灵衣/道具离线数据');
+  }
+  return await resp.json();
+}
+
+export async function loadServantStories(): Promise<ServantStoriesPayload> {
+  const cached = await idbGet<{ key: string; data: ServantStoriesPayload }>(
+    'data_blobs',
+    'servant_stories.json'
+  );
+  if (cached?.data) {
+    return cached.data;
+  }
+  const resp = await fetch(`./data/servant_stories.json?v=${DATA_VERSION}`);
+  if (!resp.ok) {
+    throw new Error('无法加载从者幕间物语与情人节剧情索引');
   }
   return await resp.json();
 }
@@ -377,11 +393,18 @@ export async function syncFromCloudManifest(
   catalogUpdated: boolean;
   extrasUpdated: boolean;
   eventsUpdated: boolean;
+  servantStoriesUpdated: boolean;
 }> {
   onProgress?.('正在检查云端完整数据包清单...', 12);
   const remoteManifest = await fetchCloudJson<CloudManifest>('cloud_manifest.json');
   if (!remoteManifest?.files) {
-    return { updatedFiles: [], catalogUpdated: false, extrasUpdated: false, eventsUpdated: false };
+    return {
+      updatedFiles: [],
+      catalogUpdated: false,
+      extrasUpdated: false,
+      eventsUpdated: false,
+      servantStoriesUpdated: false,
+    };
   }
 
   // 合并 APK 内置基线哈希与本地已同步哈希
@@ -408,13 +431,20 @@ export async function syncFromCloudManifest(
     .map(([rel]) => rel);
 
   if (changedFiles.length === 0) {
-    return { updatedFiles: [], catalogUpdated: false, extrasUpdated: false, eventsUpdated: false };
+    return {
+      updatedFiles: [],
+      catalogUpdated: false,
+      extrasUpdated: false,
+      eventsUpdated: false,
+      servantStoriesUpdated: false,
+    };
   }
 
   const updatedFiles: string[] = [];
   let catalogUpdated = false;
   let extrasUpdated = false;
   let eventsUpdated = false;
+  let servantStoriesUpdated = false;
 
   for (let i = 0; i < changedFiles.length; i++) {
     const rel = changedFiles[i];
@@ -431,6 +461,7 @@ export async function syncFromCloudManifest(
       if (rel === 'catalog_summary.json') catalogUpdated = true;
       else if (rel === 'extras_catalog.json') extrasUpdated = true;
       else if (rel === 'events_banners.json') eventsUpdated = true;
+      else if (rel === 'servant_stories.json') servantStoriesUpdated = true;
       else if (rel.startsWith('servants/')) svtChunkCache.clear();
       else if (rel.startsWith('ces/')) ceChunkCache.clear();
     } catch {
@@ -447,7 +478,13 @@ export async function syncFromCloudManifest(
     });
   }
 
-  return { updatedFiles, catalogUpdated, extrasUpdated, eventsUpdated };
+  return {
+    updatedFiles,
+    catalogUpdated,
+    extrasUpdated,
+    eventsUpdated,
+    servantStoriesUpdated,
+  };
 }
 
 export interface UpdateProgress {

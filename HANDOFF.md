@@ -187,3 +187,19 @@
   - `python -m py_compile update_cloud_data.py`：语法检查通过。
   - `python -X utf8 update_cloud_data.py --check-only`：实测精准识别本地 4,248 页 SQLite 中已有 **2 骑从者修订**（`千利休`、`冲田总司〔Alter〕(Saber)`）、**4 个语音子页面修订**、**10 张缺失礼装与 12 张礼装修订**（共 28 页待更新，未改动本地数据文件）。
   - **严格按用户要求**：未执行 Git 提交/推送，未执行 APK 打包。
+
+---
+
+## 16. 接入各从者「幕间物语」与「情人节剧情」（2026-11-20）
+
+- **轻量索引采集与云端追踪（[collect_servant_stories.py](file:///d:/git_proj/FGO_SA/collect_servant_stories.py)、[update_cloud_data.py](file:///d:/git_proj/FGO_SA/update_cloud_data.py)）**：
+  - 扫描 Atlas Academy CN 全量从者（`nice_servant.json`）及 33 个 `war`（`1003` 幕间物语、`9999` 迦勒底之门及主线各章节）和缺失的 `91*` `relateQuestIds`，跨库关联 Mooncell `catalog_summary.json` 中文译名与头像路径，生成紧凑索引 [servant_stories.json](file:///d:/git_proj/FGO_SA/app/public/data/servant_stories.json)（**361,658 字节**，收录 **214 位从者 / 279 篇幕间物语**、**425 位从者 / 435 篇情人节剧情**）及 2 张本地分类横幅图 `cat_interlude.webp`、`cat_valentine.webp`。
+  - 已将 `servant_stories.json` 纳入 `cloud_manifest.json` 追踪（共 29 个数据文件）与云端每日同步流程。
+- **三处联动入口与阅读体验复用（[types.ts](file:///d:/git_proj/FGO_SA/app/src/types.ts)、[dataService.ts](file:///d:/git_proj/FGO_SA/app/src/services/dataService.ts)、[StoryHub.tsx](file:///d:/git_proj/FGO_SA/app/src/components/StoryHub.tsx)、[ServantDetailModal.tsx](file:///d:/git_proj/FGO_SA/app/src/components/ServantDetailModal.tsx)、[CeDetailModal.tsx](file:///d:/git_proj/FGO_SA/app/src/components/CeDetailModal.tsx)、[App.tsx](file:///d:/git_proj/FGO_SA/app/src/App.tsx)、[styles.css](file:///d:/git_proj/FGO_SA/app/src/styles.css)）**：
+  - **「剧情」中心首页**：新增「幕间物语」与「情人节剧情」两张横幅分类大卡，按从者头像与编号分组展示，全局搜索兼容搜索从者名/编号/幕间与回礼标题；支持整从者一键离线缓存、阅读进度记忆（分别使用负数键 `-100000 - svtId` 与 `-200000 - svtId` 与主线进度共享 `localStorage`）与首页「最近阅读」续看。
+  - **英灵详情页**：在「资料与语音」分栏顶部新增「专属剧情阅读」快捷卡片，直接列出该从者的幕间物语与情人节剧情，点击直达全屏 `StoryReaderModal`。
+  - **概念礼装详情页**：打开「情人节概念礼装」或关联情人节从者的礼装时，提供粉色「阅读对应情人节剧情」直达按钮。
+- **验证状态**：
+  - `app\node_modules\.bin\tsc.cmd -p app\tsconfig.json --noEmit`：**0 错误通过**。
+  - `npm run build --prefix app`：`vite build` 构建成功（`dist/index.html`、`dist/bundle/index-*.css` / `.js` 产出正常，1,589 个模块）。
+  - **严格按用户要求**：未执行 Git 提交/推送，未执行 `android:sync` 与 APK 打包。

@@ -24,6 +24,8 @@ import {
   ExtrasCatalogPayload,
   EventsBannersPayload,
   StoryWarsPayload,
+  ServantStoriesPayload,
+  StoryScriptEntry,
   ServantFilterState,
   CeFilterState,
   ServantDetail,
@@ -37,6 +39,7 @@ import {
   loadCatalogSummary,
   loadExtrasCatalog,
   loadEventsBanners,
+  loadServantStories,
   loadServantDetail,
   loadCraftEssenceDetail,
   syncFromMooncell,
@@ -55,9 +58,19 @@ import {
 } from './components/ExtrasModals';
 import { EventDetailModal, BannerCard } from './components/EventsBannersView';
 import { QuestConfigHub } from './components/QuestConfigHub';
-import { StoryHub } from './components/StoryHub';
+import {
+  StoryHub,
+  StoryReaderModal,
+  buildValentineEntries,
+  valentineWarId,
+} from './components/StoryHub';
 import { BackToTopButton } from './components/BackToTopButton';
-import { loadStoryWars, syncStoryWarsFromAtlas } from './services/storyService';
+import {
+  loadStoryWars,
+  syncStoryWarsFromAtlas,
+  getWarProgress,
+  saveWarProgress,
+} from './services/storyService';
 
 const INITIAL_SERVANT_FILTERS: ServantFilterState = {
   rarities: [],
@@ -136,6 +149,14 @@ export const App: React.FC = () => {
   const [extras, setExtras] = useState<ExtrasCatalogPayload | null>(null);
   const [eventsBanners, setEventsBanners] = useState<EventsBannersPayload | null>(null);
   const [storyWars, setStoryWars] = useState<StoryWarsPayload | null>(null);
+  const [servantStories, setServantStories] = useState<ServantStoriesPayload | null>(null);
+  const [directStoryReader, setDirectStoryReader] = useState<{
+    warId: number;
+    title: string;
+    entries: StoryScriptEntry[];
+    entryIndex: number;
+    initialScrollTop: number;
+  } | null>(null);
   const [initError, setInitError] = useState<string>('');
   const [mainTab, setMainTab] = useState<
     'servant' | 'ce' | 'mc' | 'costume' | 'item' | 'event' | 'banner' | 'story'
@@ -155,6 +176,7 @@ export const App: React.FC = () => {
     setSelectedCostume(null);
     setSelectedItem(null);
     setSelectedEvent(null);
+    setDirectStoryReader(null);
     setTabResetTick((t) => t + 1);
     catalogMainRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -243,6 +265,9 @@ export const App: React.FC = () => {
       .catch(() => {});
     loadStoryWars()
       .then((data) => setStoryWars(data))
+      .catch(() => {});
+    loadServantStories()
+      .then((data) => setServantStories(data))
       .catch(() => {});
   }, []);
 
@@ -593,6 +618,56 @@ export const App: React.FC = () => {
     }
   };
 
+  const handleOpenServantStory = (
+    title: string,
+    progressKeyId: number,
+    entries: StoryScriptEntry[],
+    startIndex = 0
+  ) => {
+    if (entries.length === 0) return;
+    const prog = getWarProgress(progressKeyId);
+    const safeIdx = Math.max(0, Math.min(startIndex, entries.length - 1));
+    const targetEntry = entries[safeIdx];
+    const resumeScroll =
+      prog && prog.lastScriptId === targetEntry.scriptId ? prog.lastScrollTop || 0 : 0;
+    setDirectStoryReader({
+      warId: progressKeyId,
+      title,
+      entries,
+      entryIndex: safeIdx,
+      initialScrollTop: resumeScroll,
+    });
+  };
+
+  const selectedSvtInterlude = useMemo(() => {
+    if (!selectedSvt || !servantStories) return null;
+    return servantStories.interludes.find((g) => g.svtId === selectedSvt.id) || null;
+  }, [selectedSvt, servantStories]);
+
+  const selectedSvtValentine = useMemo(() => {
+    if (!selectedSvt || !servantStories) return null;
+    return servantStories.valentines.find((g) => g.svtId === selectedSvt.id) || null;
+  }, [selectedSvt, servantStories]);
+
+  const selectedCeValentineGroup = useMemo(() => {
+    if (!selectedCe || !servantStories) return null;
+    if (selectedCe.bondServant) {
+      const svt = servantByTitle.get(selectedCe.bondServant);
+      const bySvt = servantStories.valentines.find(
+        (v) => (svt && v.svtId === svt.id) || v.nameCn === selectedCe.bondServant
+      );
+      if (bySvt) return bySvt;
+    }
+    if (selectedCe.category === '情人节概念礼装') {
+      return (
+        servantStories.valentines.find((v) =>
+          v.scripts.some((sc) => sc.scriptName === selectedCe.nameCn)
+        ) || null
+      );
+    }
+    return null;
+  }, [selectedCe, servantStories, servantByTitle]);
+
   const runOnlineSync = async (isAuto: boolean) => {
     if (!catalog || updateState?.running) {
       if (!isAuto) showToast();
@@ -633,6 +708,10 @@ export const App: React.FC = () => {
           const freshEv = await loadEventsBanners();
           latestEventsBanners = freshEv;
           setEventsBanners(freshEv);
+        }
+        if (cloudRes.servantStoriesUpdated) {
+          const freshSvtStories = await loadServantStories();
+          setServantStories(freshSvtStories);
         }
       } catch {
         // 云端通道异常时不影响直连源站通道
@@ -836,7 +915,7 @@ export const App: React.FC = () => {
                 : mainTab === 'event'
                 ? '搜索活动名称 / 活动年份或关键词(如:泳装、唠唠叨叨、圣诞)...'
                 : mainTab === 'story'
-                ? '搜索主线章节或活动剧情名称(如:奥林波斯、奏章、唠唠叨叨)...'
+                ? '搜索主线 / 活动 / 幕间物语 / 情人节剧情(如:奥林波斯、阿尔托莉雅)...'
                 : '搜索卡池名称 / UP从者名(如:阿尔托莉雅、摩根) / UP礼装名...'
             }
             value={searchQuery}
@@ -1622,6 +1701,7 @@ export const App: React.FC = () => {
         ) : mainTab === 'story' ? (
           <StoryHub
             wars={storyWars?.wars || []}
+            servantStories={servantStories}
             searchQuery={searchQuery}
             onScrollTop={() => {
               catalogMainRef.current?.scrollTo({ top: 0, behavior: 'auto' });
@@ -1779,6 +1859,9 @@ export const App: React.FC = () => {
           handleOpenCe(ceId);
         }}
         onOpenItemByName={handleOpenItemByName}
+        interludeGroup={selectedSvtInterlude}
+        valentineGroup={selectedSvtValentine}
+        onOpenServantStory={handleOpenServantStory}
       />
 
       {/* Craft Essence Detail Sheet */}
@@ -1799,6 +1882,33 @@ export const App: React.FC = () => {
               : [...prev.effectTags, tag],
           }));
         }}
+        valentineStory={
+          selectedCeValentineGroup
+            ? {
+                svtId: selectedCeValentineGroup.svtId,
+                svtName: selectedCeValentineGroup.nameCn,
+                scripts: selectedCeValentineGroup.scripts,
+              }
+            : null
+        }
+        onOpenValentineStory={
+          selectedCeValentineGroup
+            ? () => {
+                const startIdx = Math.max(
+                  0,
+                  selectedCeValentineGroup.scripts.findIndex(
+                    (sc) => sc.scriptName === selectedCe?.nameCn
+                  )
+                );
+                handleOpenServantStory(
+                  `${selectedCeValentineGroup.nameCn} · 情人节剧情`,
+                  valentineWarId(selectedCeValentineGroup.svtId),
+                  buildValentineEntries(selectedCeValentineGroup),
+                  startIdx
+                );
+              }
+            : undefined
+        }
       />
 
       {/* Mystic Code Detail Sheet */}
@@ -1835,6 +1945,31 @@ export const App: React.FC = () => {
         onOpenServant={handleOpenServant}
         onOpenCe={handleOpenCe}
       />
+
+      {/* Direct Fullscreen Story Reader opened from Servant / CE Detail */}
+      {directStoryReader && (
+        <StoryReaderModal
+          war={{ id: directStoryReader.warId, name: directStoryReader.title }}
+          entries={directStoryReader.entries}
+          entryIndex={directStoryReader.entryIndex}
+          initialScrollTop={directStoryReader.initialScrollTop}
+          onChangeIndex={(nextIdx) =>
+            setDirectStoryReader((prev) =>
+              prev ? { ...prev, entryIndex: nextIdx, initialScrollTop: 0 } : null
+            )
+          }
+          onSaveProgress={(idx, entry, scrollTop) => {
+            saveWarProgress(
+              directStoryReader.warId,
+              idx,
+              entry.scriptId,
+              entry.questName,
+              scrollTop
+            );
+          }}
+          onClose={() => setDirectStoryReader(null)}
+        />
+      )}
     </div>
   );
 };

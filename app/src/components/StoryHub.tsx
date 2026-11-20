@@ -17,6 +17,8 @@ import {
   Play,
   AlertCircle,
   Trash2,
+  ScrollText,
+  Heart,
 } from 'lucide-react';
 import {
   StoryWarCategory,
@@ -25,7 +27,11 @@ import {
   StoryScriptEntry,
   ParsedStoryScript,
   WarReadProgress,
+  ServantStoriesPayload,
+  ServantInterludeGroup,
+  ServantValentineGroup,
 } from '../types';
+import { SmartImage } from './SmartImage';
 import {
   loadWarDetail,
   loadStoryScript,
@@ -42,8 +48,37 @@ import { useBackClose } from '../utils/backNavigation';
 import { BackToTopButton } from './BackToTopButton';
 import { StorySceneCard, CachedStoryImg } from './StorySceneCard';
 
+export const interludeWarId = (svtId: number): number => -100000 - svtId;
+export const valentineWarId = (svtId: number): number => -200000 - svtId;
+
+export function buildInterludeEntries(group: ServantInterludeGroup): StoryScriptEntry[] {
+  const entries: StoryScriptEntry[] = [];
+  for (const q of group.quests) {
+    for (const e of q.entries) {
+      entries.push({
+        ...e,
+        chapterLabel: q.name || e.questName,
+      });
+    }
+  }
+  return entries;
+}
+
+export function buildValentineEntries(group: ServantValentineGroup): StoryScriptEntry[] {
+  return group.scripts.map((s) => ({
+    scriptId: s.scriptId,
+    scriptUrl: s.scriptUrl,
+    spotName: '迦勒底 · 情人节',
+    questName: s.scriptName || '情人节剧情',
+    chapterLabel: '情人节剧情',
+    phase: 1,
+    partLabel: '',
+  }));
+}
+
 interface StoryHubProps {
   wars: StoryWarSummary[];
+  servantStories: ServantStoriesPayload | null;
   searchQuery: string;
   onScrollTop: () => void;
   resetSignal?: number;
@@ -56,6 +91,7 @@ const STORY_CATEGORIES: {
   subtitle: string;
   bannerImg: string;
   fallbackBg: string;
+  unitLabel: string;
   icon: React.ReactNode;
 }[] = [
   {
@@ -65,6 +101,7 @@ const STORY_CATEGORIES: {
     subtitle: '特异点F 冬木 ～ 终局特异点 所罗门',
     bannerImg: './assets/story/cat_part1.webp',
     fallbackBg: 'linear-gradient(135deg, #1e3a8a, #2563eb)',
+    unitLabel: '篇',
     icon: <Compass size={18} />,
   },
   {
@@ -74,6 +111,7 @@ const STORY_CATEGORIES: {
     subtitle: '新宿 · 雅戈泰 · 下总国 · 塞勒姆',
     bannerImg: './assets/story/cat_part15.webp',
     fallbackBg: 'linear-gradient(135deg, #4c1d95, #7c3aed)',
+    unitLabel: '篇',
     icon: <Flame size={18} />,
   },
   {
@@ -83,6 +121,7 @@ const STORY_CATEGORIES: {
     subtitle: '永久冻土帝国 ～ 黄金树海纪行',
     bannerImg: './assets/story/cat_part2.webp',
     fallbackBg: 'linear-gradient(135deg, #0c4a6e, #0891b2)',
+    unitLabel: '篇',
     icon: <Sparkles size={18} />,
   },
   {
@@ -92,6 +131,7 @@ const STORY_CATEGORIES: {
     subtitle: '奏章Ⅰ ～ 奏章Ⅳ 最新主线',
     bannerImg: './assets/story/cat_ordeal_call.webp',
     fallbackBg: 'linear-gradient(135deg, #78350f, #b45309)',
+    unitLabel: '篇',
     icon: <Scale size={18} />,
   },
   {
@@ -101,7 +141,28 @@ const STORY_CATEGORIES: {
     subtitle: '历代大型活动、联动与限时活动剧情',
     bannerImg: './assets/story/cat_event.webp',
     fallbackBg: 'linear-gradient(135deg, #064e3b, #059669)',
+    unitLabel: '篇',
     icon: <Calendar size={18} />,
+  },
+  {
+    id: 'interlude',
+    title: '幕间物语',
+    enSub: 'Interludes',
+    subtitle: '各从者专属幕间物语剧情',
+    bannerImg: './assets/story/cat_interlude.webp',
+    fallbackBg: 'linear-gradient(135deg, #312e81, #4f46e5)',
+    unitLabel: '位从者',
+    icon: <ScrollText size={18} />,
+  },
+  {
+    id: 'valentine',
+    title: '情人节剧情',
+    enSub: 'Valentine Stories',
+    subtitle: '各从者专属巧克力与回礼剧情',
+    bannerImg: './assets/story/cat_valentine.webp',
+    fallbackBg: 'linear-gradient(135deg, #881337, #e11d48)',
+    unitLabel: '位从者',
+    icon: <Heart size={18} />,
   },
 ];
 
@@ -115,18 +176,18 @@ function getSpeakerTone(name: string): string {
 
 /* ========================= 沉浸式剧情阅读器弹窗 ========================= */
 
-interface StoryReaderModalProps {
-  war: StoryWarSummary;
+export interface StoryReaderModalProps {
+  war: Pick<StoryWarSummary, 'id' | 'name'>;
   entries: StoryScriptEntry[];
   entryIndex: number;
   initialScrollTop: number;
   onChangeIndex: (nextIdx: number) => void;
   onSaveProgress: (idx: number, entry: StoryScriptEntry, scrollTop: number) => void;
-  onScriptCached: (scriptId: string) => void;
+  onScriptCached?: (scriptId: string) => void;
   onClose: () => void;
 }
 
-const StoryReaderModal: React.FC<StoryReaderModalProps> = ({
+export const StoryReaderModal: React.FC<StoryReaderModalProps> = ({
   war,
   entries,
   entryIndex,
@@ -157,7 +218,7 @@ const StoryReaderModal: React.FC<StoryReaderModalProps> = ({
       try {
         const data = await loadStoryScript(entry.scriptId, entry.scriptUrl, force);
         setScriptData(data);
-        onScriptCached(entry.scriptId);
+        onScriptCached?.(entry.scriptId);
         // 一次性批量预拉取本节所有登场角色的 svtScript 坐标（已持久化到 IndexedDB）
         const charaIds = data.blocks
           .filter((b): b is Extract<typeof b, { type: 'scene' }> => b.type === 'scene')
@@ -525,6 +586,7 @@ const StoryWarBannerCard: React.FC<{
 
 export const StoryHub: React.FC<StoryHubProps> = ({
   wars,
+  servantStories,
   searchQuery,
   onScrollTop,
   resetSignal = 0,
@@ -644,6 +706,80 @@ export const StoryHub: React.FC<StoryHubProps> = ({
     }
   }, []);
 
+  const openVirtualWar = useCallback(
+    (
+      virtualWar: StoryWarSummary,
+      entries: StoryScriptEntry[],
+      autoResumeIfHasProgress: boolean,
+      directOpenWhenSingle = false
+    ) => {
+      setSelectedWar(virtualWar);
+      setDetailLoading(false);
+      setDetailError('');
+      setWarDetail({
+        warId: virtualWar.id,
+        name: virtualWar.name,
+        longName: virtualWar.longName,
+        entries,
+        fetchedAt: servantStories?.generatedAt || '',
+      });
+      setReaderState(null);
+      setResumePrompt(null);
+      onScrollTop();
+
+      if (entries.length === 0) return;
+      const prog = progressMap[virtualWar.id];
+
+      if (directOpenWhenSingle && entries.length === 1) {
+        setReaderState({
+          entryIndex: 0,
+          initialScrollTop: prog?.lastScriptId === entries[0].scriptId ? prog.lastScrollTop || 0 : 0,
+        });
+        return;
+      }
+
+      if (prog && prog.lastScriptId) {
+        if (autoResumeIfHasProgress) {
+          const idx = entries.findIndex((e) => e.scriptId === prog.lastScriptId);
+          const targetIdx = idx >= 0 ? idx : Math.min(prog.lastEntryIndex, entries.length - 1);
+          setReaderState({
+            entryIndex: Math.max(0, targetIdx),
+            initialScrollTop: prog.lastScrollTop || 0,
+          });
+        } else {
+          setResumePrompt({ war: virtualWar, progress: prog });
+        }
+      }
+    },
+    [servantStories, progressMap, onScrollTop]
+  );
+
+  const handleOpenInterludeGroup = (group: ServantInterludeGroup, autoResume = false) => {
+    const entries = buildInterludeEntries(group);
+    const vWar: StoryWarSummary = {
+      id: interludeWarId(group.svtId),
+      eventId: 0,
+      category: 'interlude',
+      name: group.nameCn,
+      longName: `${group.nameCn} · 幕间物语`,
+      banner: '',
+    };
+    openVirtualWar(vWar, entries, autoResume, false);
+  };
+
+  const handleOpenValentineGroup = (group: ServantValentineGroup, autoResume = false) => {
+    const entries = buildValentineEntries(group);
+    const vWar: StoryWarSummary = {
+      id: valentineWarId(group.svtId),
+      eventId: 0,
+      category: 'valentine',
+      name: group.nameCn,
+      longName: `${group.nameCn} · 情人节剧情`,
+      banner: '',
+    };
+    openVirtualWar(vWar, entries, autoResume, true);
+  };
+
   const handleOpenWar = async (war: StoryWarSummary, autoResumeIfHasProgress = false) => {
     setSelectedWar(war);
     setWarDetail(null);
@@ -729,38 +865,95 @@ export const StoryHub: React.FC<StoryHubProps> = ({
       part2: 0,
       ordeal_call: 0,
       event: 0,
+      interlude: servantStories?.counts.interludeServants || 0,
+      valentine: servantStories?.counts.valentineServants || 0,
     };
     for (const w of wars) {
       if (map[w.category] !== undefined) map[w.category]++;
     }
     return map;
-  }, [wars]);
+  }, [wars, servantStories]);
 
-  // 最近阅读的一章（用于首页快捷续看）
-  const latestReadWar = useMemo(() => {
+  // 最近阅读的一章（兼容主线/活动、幕间物语与情人节剧情）
+  const latestReadEntry = useMemo(() => {
     const entries = Object.values(progressMap);
     if (entries.length === 0) return null;
     entries.sort((a, b) => b.updatedAt - a.updatedAt);
-    const latest = entries[0];
-    const war = wars.find((w) => w.id === latest.warId);
-    if (!war) return null;
-    return { war, progress: latest };
-  }, [progressMap, wars]);
+    for (const latest of entries) {
+      if (latest.warId > 0) {
+        const war = wars.find((w) => w.id === latest.warId);
+        if (war) return { kind: 'war' as const, war, title: war.longName, progress: latest };
+      } else if (latest.warId <= -100000 && latest.warId > -200000 && servantStories) {
+        const svtId = -100000 - latest.warId;
+        const grp = servantStories.interludes.find((g) => g.svtId === svtId);
+        if (grp) {
+          return {
+            kind: 'interlude' as const,
+            group: grp,
+            title: `${grp.nameCn} · 幕间物语`,
+            progress: latest,
+          };
+        }
+      } else if (latest.warId <= -200000 && servantStories) {
+        const svtId = -200000 - latest.warId;
+        const grp = servantStories.valentines.find((g) => g.svtId === svtId);
+        if (grp) {
+          return {
+            kind: 'valentine' as const,
+            group: grp,
+            title: `${grp.nameCn} · 情人节剧情`,
+            progress: latest,
+          };
+        }
+      }
+    }
+    return null;
+  }, [progressMap, wars, servantStories]);
 
   // 搜索过滤
   const q = searchQuery.trim().toLowerCase();
   const visibleWars = useMemo(() => {
     if (q) {
-      return wars.filter(
+      if (selectedCat === 'interlude' || selectedCat === 'valentine') return [];
+      const base = selectedCat ? wars.filter((w) => w.category === selectedCat) : wars;
+      return base.filter(
         (w) =>
           w.longName.toLowerCase().includes(q) ||
           w.name.toLowerCase().includes(q) ||
           String(w.id) === q
       );
     }
-    if (!selectedCat) return [];
+    if (!selectedCat || selectedCat === 'interlude' || selectedCat === 'valentine') return [];
     return wars.filter((w) => w.category === selectedCat);
   }, [wars, selectedCat, q]);
+
+  const visibleInterludes = useMemo(() => {
+    if (!servantStories) return [];
+    if (selectedCat && selectedCat !== 'interlude') return [];
+    if (!selectedCat && !q) return [];
+    const list = servantStories.interludes;
+    if (!q) return list;
+    return list.filter(
+      (g) =>
+        g.nameCn.toLowerCase().includes(q) ||
+        String(g.svtId) === q.replace(/^#/, '') ||
+        g.quests.some((qt) => qt.name.toLowerCase().includes(q) || qt.spotName.toLowerCase().includes(q))
+    );
+  }, [servantStories, selectedCat, q]);
+
+  const visibleValentines = useMemo(() => {
+    if (!servantStories) return [];
+    if (selectedCat && selectedCat !== 'valentine') return [];
+    if (!selectedCat && !q) return [];
+    const list = servantStories.valentines;
+    if (!q) return list;
+    return list.filter(
+      (g) =>
+        g.nameCn.toLowerCase().includes(q) ||
+        String(g.svtId) === q.replace(/^#/, '') ||
+        g.scripts.some((sc) => sc.scriptName.toLowerCase().includes(q))
+    );
+  }, [servantStories, selectedCat, q]);
 
   /* ==================== 视图 3：某章节的剧情节目录页 ==================== */
   if (selectedWar) {
@@ -785,15 +978,17 @@ export const StoryHub: React.FC<StoryHubProps> = ({
                 : '正在读取章节目录...'}
             </span>
           </div>
-          <button
-            type="button"
-            className="btn-refresh-quest"
-            onClick={() => fetchWar(selectedWar, true)}
-            disabled={detailLoading}
-          >
-            <RefreshCw size={13} className={detailLoading ? 'spin-icon' : ''} />
-            <span>刷新</span>
-          </button>
+          {selectedWar.id > 0 && (
+            <button
+              type="button"
+              className="btn-refresh-quest"
+              onClick={() => fetchWar(selectedWar, true)}
+              disabled={detailLoading}
+            >
+              <RefreshCw size={13} className={detailLoading ? 'spin-icon' : ''} />
+              <span>刷新</span>
+            </button>
+          )}
         </div>
 
         {/* 章节操作条：上次进度快捷续看 + 一键缓存本章全部文本 */}
@@ -957,16 +1152,23 @@ export const StoryHub: React.FC<StoryHubProps> = ({
             }
             onSaveProgress={handleSaveProgress}
             onScriptCached={handleScriptCached}
-            onClose={() => setReaderState(null)}
+            onClose={() => {
+              setReaderState(null);
+              if (selectedWar.category === 'valentine' && warDetail.entries.length === 1) {
+                closeWarDetail();
+              }
+            }}
           />
         )}
       </div>
     );
   }
 
-  /* ==================== 视图 2：分类下的章节列表（或全局搜索结果） ==================== */
+  /* ==================== 视图 2：分类下的章节/从者剧情列表（或全局搜索结果） ==================== */
   if (selectedCat || q) {
     const activeCatObj = STORY_CATEGORIES.find((c) => c.id === selectedCat);
+    const totalMatches = visibleWars.length + visibleInterludes.length + visibleValentines.length;
+
     return (
       <div className="quest-hub-wrap">
         {!q && (
@@ -977,27 +1179,128 @@ export const StoryHub: React.FC<StoryHubProps> = ({
             </button>
             <div className="quest-sub-title-box">
               <h3>{activeCatObj?.title}</h3>
-              <span>共 {visibleWars.length} 篇中文剧情</span>
+              <span>
+                {selectedCat === 'interlude'
+                  ? `共 ${visibleInterludes.length} 位从者 · ${servantStories?.counts.interludeQuests || 0} 篇幕间`
+                  : selectedCat === 'valentine'
+                  ? `共 ${visibleValentines.length} 位从者 · ${servantStories?.counts.valentineScripts || 0} 篇剧情`
+                  : `共 ${visibleWars.length} 篇中文剧情`}
+              </span>
             </div>
           </div>
         )}
 
-        {visibleWars.length === 0 ? (
+        {totalMatches === 0 ? (
           <div className="empty-state">
-            <p>没有匹配「{searchQuery}」的主线或活动剧情</p>
+            <p>没有匹配「{searchQuery}」的剧情内容</p>
           </div>
         ) : (
-          <div className="story-war-list">
-            {visibleWars.map((w, idx) => (
-              <StoryWarBannerCard
-                key={w.id}
-                war={w}
-                index={idx}
-                progress={progressMap[w.id]}
-                onClick={() => handleOpenWar(w, false)}
-              />
-            ))}
-          </div>
+          <>
+            {visibleWars.length > 0 && (
+              <div className="story-war-list">
+                {visibleWars.map((w, idx) => (
+                  <StoryWarBannerCard
+                    key={w.id}
+                    war={w}
+                    index={idx}
+                    progress={progressMap[w.id]}
+                    onClick={() => handleOpenWar(w, false)}
+                  />
+                ))}
+              </div>
+            )}
+
+            {visibleInterludes.length > 0 && (
+              <>
+                {q && visibleWars.length > 0 && (
+                  <h4 className="story-search-sec-title">幕间物语（{visibleInterludes.length}）</h4>
+                )}
+                <div className="story-svt-grid">
+                  {visibleInterludes.map((g) => {
+                    const prog = progressMap[interludeWarId(g.svtId)];
+                    return (
+                      <button
+                        key={`il-${g.svtId}`}
+                        type="button"
+                        className="story-svt-card"
+                        onClick={() => handleOpenInterludeGroup(g, false)}
+                      >
+                        <SmartImage
+                          localSrc={g.iconLocal}
+                          alt={g.nameCn}
+                          className="story-svt-avatar"
+                        />
+                        <div className="story-svt-card-body">
+                          <div className="story-svt-card-head">
+                            <span className="story-svt-no">No.{g.svtId}</span>
+                            <strong>{g.nameCn}</strong>
+                            <span className="story-svt-count-pill">{g.quests.length} 篇</span>
+                          </div>
+                          <div className="story-svt-card-sub">
+                            {g.quests.map((qt) => qt.name).join(' / ')}
+                          </div>
+                          {prog && (
+                            <div className="story-svt-prog">
+                              上次看到：{prog.lastTitle}
+                            </div>
+                          )}
+                        </div>
+                        <ChevronRight size={17} className="quest-option-arrow" />
+                      </button>
+                    );
+                  })}
+                </div>
+              </>
+            )}
+
+            {visibleValentines.length > 0 && (
+              <>
+                {q && (visibleWars.length > 0 || visibleInterludes.length > 0) && (
+                  <h4 className="story-search-sec-title">情人节剧情（{visibleValentines.length}）</h4>
+                )}
+                <div className="story-svt-grid">
+                  {visibleValentines.map((g) => {
+                    const prog = progressMap[valentineWarId(g.svtId)];
+                    const firstScriptId = g.scripts[0]?.scriptId;
+                    const isCached = Boolean(firstScriptId && cachedIds.has(firstScriptId));
+                    return (
+                      <button
+                        key={`val-${g.svtId}`}
+                        type="button"
+                        className="story-svt-card"
+                        onClick={() => handleOpenValentineGroup(g, false)}
+                      >
+                        <SmartImage
+                          localSrc={g.iconLocal}
+                          alt={g.nameCn}
+                          className="story-svt-avatar"
+                        />
+                        <div className="story-svt-card-body">
+                          <div className="story-svt-card-head">
+                            <span className="story-svt-no">No.{g.svtId}</span>
+                            <strong>{g.nameCn}</strong>
+                            {g.scripts.length > 1 && (
+                              <span className="story-svt-count-pill">{g.scripts.length} 节</span>
+                            )}
+                          </div>
+                          <div className="story-svt-card-sub">
+                            {g.scripts.map((sc) => sc.scriptName).join(' / ')}
+                          </div>
+                          {(prog || isCached) && (
+                            <div className="story-row-badges" style={{ marginTop: 3 }}>
+                              {prog && <span className="story-badge read">已读</span>}
+                              {isCached && <span className="story-badge cached">离线</span>}
+                            </div>
+                          )}
+                        </div>
+                        <ChevronRight size={17} className="quest-option-arrow" />
+                      </button>
+                    );
+                  })}
+                </div>
+              </>
+            )}
+          </>
         )}
       </div>
     );
@@ -1006,20 +1309,28 @@ export const StoryHub: React.FC<StoryHubProps> = ({
   /* ==================== 视图 1：剧情中心分类首页 ==================== */
   return (
     <div className="quest-hub-wrap">
-      {latestReadWar && (
+      {latestReadEntry && (
         <button
           type="button"
           className="story-recent-banner"
-          onClick={() => handleOpenWar(latestReadWar.war, true)}
+          onClick={() => {
+            if (latestReadEntry.kind === 'war') {
+              handleOpenWar(latestReadEntry.war, true);
+            } else if (latestReadEntry.kind === 'interlude') {
+              handleOpenInterludeGroup(latestReadEntry.group, true);
+            } else {
+              handleOpenValentineGroup(latestReadEntry.group, true);
+            }
+          }}
         >
           <div className="story-recent-left">
             <span className="story-recent-tag">
               <Clock size={12} /> 最近阅读 · 点击继续
             </span>
-            <strong>{latestReadWar.war.longName}</strong>
+            <strong>{latestReadEntry.title}</strong>
             <small>
-              上次看到：第 {latestReadWar.progress.lastEntryIndex + 1} 节 ·{' '}
-              {latestReadWar.progress.lastTitle}
+              上次看到：第 {latestReadEntry.progress.lastEntryIndex + 1} 节 ·{' '}
+              {latestReadEntry.progress.lastTitle}
             </small>
           </div>
           <div className="story-recent-play">
@@ -1056,7 +1367,9 @@ export const StoryHub: React.FC<StoryHubProps> = ({
                   {cat.icon}
                   <span>{cat.enSub}</span>
                 </span>
-                <span className="story-cat-banner-count">{catCounts[cat.id]} 篇</span>
+                <span className="story-cat-banner-count">
+                  {catCounts[cat.id]} {cat.unitLabel}
+                </span>
               </div>
               <div className="story-cat-banner-bottom">
                 <div className="story-cat-banner-titles">
