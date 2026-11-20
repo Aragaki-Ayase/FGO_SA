@@ -2,6 +2,7 @@
 Fetch all Mooncell Events (活动一览) and Summon Banners (卡池一览) via SMW action=ask API,
 save raw snapshot to data/events_banners_raw.json, and build app/public/data/events_banners.json.
 """
+import argparse
 import hashlib
 import json
 import time
@@ -76,6 +77,11 @@ def first_ts(arr) -> int:
     return 0
 
 
+def first_bool(arr) -> bool:
+    s = first_str(arr).strip().lower()
+    return s in ("t", "true", "1", "yes", "是")
+
+
 def list_titles(arr) -> list[str]:
     out = []
     for v in (arr or []):
@@ -89,32 +95,47 @@ def list_titles(arr) -> list[str]:
 
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--from-raw",
+        action="store_true",
+        help="Parse from local data/events_banners_raw.json without fetching remote API",
+    )
+    args = parser.parse_args()
+
     DATA_DIR.mkdir(exist_ok=True)
     APP_DATA_DIR.mkdir(parents=True, exist_ok=True)
+    raw_path = DATA_DIR / "events_banners_raw.json"
 
-    print("1) Fetching Events (活动一览)...", flush=True)
-    events_raw = smw_ask_all(
-        "[[分类:有活动信息的页面]][[EventType::Event||Campaign||Other]]"
-        "|?EventNameCN|?EventNameJP|?EventStartCN|?EventEndCN|?EventStartJP|?EventEndJP"
-        "|?EventImageCN|?EventImageJP|?EventType|?EventRecentServer"
-        "|sort=EventStartJP|order=desc"
-    )
+    if args.from_raw and raw_path.exists():
+        print(f"Loading raw snapshot from {raw_path} ...", flush=True)
+        raw_obj = json.loads(raw_path.read_text(encoding="utf-8"))
+        events_raw = raw_obj.get("events", {})
+        banners_raw = raw_obj.get("banners", {})
+    else:
+        print("1) Fetching Events (活动一览)...", flush=True)
+        events_raw = smw_ask_all(
+            "[[分类:有活动信息的页面]][[EventType::Event||Campaign||Other]]"
+            "|?EventNameCN|?EventNameJP|?EventStartCN|?EventEndCN|?EventStartJP|?EventEndJP"
+            "|?EventImageCN|?EventImageJP|?EventType|?EventRecentServer"
+            "|sort=EventStartJP|order=desc"
+        )
 
-    print("2) Fetching Summon Banners (卡池一览)...", flush=True)
-    banners_raw = smw_ask_all(
-        "[[SummonStartJP::+]]"
-        "|?SummonTitleCN|?SummonTitleJP|?SummonImage|?SummonImageCN|?SummonImageJP"
-        "|?SummonStartCN|?SummonEndCN|?SummonStartJP|?SummonEndJP"
-        "|?推荐召唤从者|?推荐召唤礼装|?SummonLuckybag"
-        "|sort=SummonStartJP|order=desc",
-        page_size=400,
-        max_pages=6,
-    )
+        print("2) Fetching Summon Banners (卡池一览)...", flush=True)
+        banners_raw = smw_ask_all(
+            "[[SummonStartJP::+]]"
+            "|?SummonTitleCN|?SummonTitleJP|?SummonImage|?SummonImageCN|?SummonImageJP"
+            "|?SummonStartCN|?SummonEndCN|?SummonStartJP|?SummonEndJP"
+            "|?推荐召唤从者|?推荐召唤礼装|?SummonLuckybag"
+            "|sort=SummonStartJP|order=desc",
+            page_size=400,
+            max_pages=6,
+        )
 
-    (DATA_DIR / "events_banners_raw.json").write_text(
-        json.dumps({"events": events_raw, "banners": banners_raw}, ensure_ascii=False),
-        encoding="utf-8",
-    )
+        raw_path.write_text(
+            json.dumps({"events": events_raw, "banners": banners_raw}, ensure_ascii=False),
+            encoding="utf-8",
+        )
 
     # Parse Events
     events = []
@@ -165,7 +186,7 @@ def main():
         )
         servants = list_titles(po.get("推荐召唤从者"))
         ces = list_titles(po.get("推荐召唤礼装"))
-        luckybag = bool(po.get("SummonLuckybag"))
+        luckybag = first_bool(po.get("SummonLuckybag"))
 
         banners.append({
             "title": page_title,

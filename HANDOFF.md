@@ -18,7 +18,7 @@
      - **强化技能/宝具默认优先展示**：在 [SkillAndNpTables.tsx](file:///d:/git_proj/FGO_SA/app/src/components/SkillAndNpTables.tsx) 中新增 `getDefaultVariantIndex`，对存在强化的持有技能和宝具默认优先选中最高强化后的变体（如 `强化后`、`强化后2`、`强化后 (Buster)`），无强化项则保持默认第 1 项。
      - **从者语音点播与按需离线缓存**：在 [build_app_data.py](file:///d:/git_proj/FGO_SA/build_app_data.py) 中解析每条语音的 `audioUrl`，通过 [voicePlayer.ts](file:///d:/git_proj/FGO_SA/app/src/services/voicePlayer.ts) 与 Vite `/mooncell-media` 代理实现即点即播、自动互斥、播放后后台自动缓存及单个从者语音包一键离线缓存（Cache Storage）。
      - **双通道全模块自动更新与本地持久化（[update_cloud_data.py](file:///d:/git_proj/FGO_SA/update_cloud_data.py)、[update-catalog-data.yml](file:///d:/git_proj/FGO_SA/.github/workflows/update-catalog-data.yml)、[dataService.ts](file:///d:/git_proj/FGO_SA/app/src/services/dataService.ts)）**：
-       - **云端通道（方案 1）**：GitHub Actions 每周一自动运行（支持手动触发）增量同步 Mooncell 与 Atlas Academy 数据并生成带 28+ 分片 SHA-256 哈希的 `cloud_manifest.json`；App 点击「更新数据」或启动自动同步时，通过 jsDelivr 国内加速 + GitHub Raw 双线路按哈希差异增量拉取变化的英灵完整技能/宝具/羁绊分片、概念礼装分片、魔术礼装、灵衣、素材掉落效率数据包并持久化至 IndexedDB `data_blobs`（下次离线直接生效，新增图片自动走远端 CDN 兜底显示）。
+       - **云端通道（方案 1）**：GitHub Actions 每天北京时间 19:30 (UTC 11:30) 自动运行（支持手动触发）增量同步 Mooncell 与 Atlas Academy 数据并生成带 28+ 分片 SHA-256 哈希的 `cloud_manifest.json`；App 点击「更新数据」或启动自动同步时，通过 jsDelivr 国内加速 + GitHub Raw 双线路按哈希差异增量拉取变化的英灵完整技能/宝具/羁绊分片、概念礼装分片、魔术礼装、灵衣、素材掉落效率数据包并持久化至 IndexedDB `data_blobs`（下次离线直接生效，新增图片自动走远端 CDN 兜底显示）。
        - **源站直连通道**：同时继续直连 Mooncell SMW（最新 60 活动 / 80 卡池）与 Atlas Academy CN（最新主线/活动剧情目录与日服实装日期）实时补齐，任一通道异常均不阻断另一通道。
      - **活动一览 / 活动关卡配置 / 卡池一览（[collect_events_banners.py](file:///d:/git_proj/FGO_SA/collect_events_banners.py) & [EventsBannersView.tsx](file:///d:/git_proj/FGO_SA/app/src/components/EventsBannersView.tsx)）**：全量采集 692 个活动与 698 个卡池入 `events_banners.json`，支持国/日服进行中与未来视筛选、卡池 UP 从者/礼装带框头像点击跳详情，以及按需拉取并 IndexedDB 离线缓存各活动与主线章节的 `/关卡配置`（仅保留主线/自由/高难等顶级大类目录，移除错位面包屑并屏蔽外部 Mooncell 链接跳转）。
      - **关卡配置中心与层级返回导航（[QuestConfigHub.tsx](file:///d:/git_proj/FGO_SA/app/src/components/QuestConfigHub.tsx) & [EventsBannersView.tsx](file:///d:/git_proj/FGO_SA/app/src/components/EventsBannersView.tsx)）**：底部导航以「关卡配置」替代「活动」，采用适配手机端的 7 大彩色卡片分类（活动关卡、迦勒底之门、主线剧情 6 大部、冠位戴冠战、亚兹拉尔之庙、主线物语、自由关卡），全部子选项支持层级下钻并通过 `useBackClose` 实现按系统返回键/侧滑手势逐级退回上一级选项。
@@ -146,3 +146,44 @@
     - 在 `cleanSpeakerName` 中先执行 `cleanInlineMarkup` 再去槽位前缀，并同步应用于 `charaSet` 角色立绘名；
     - 升级 `SCRIPT_PARSER_VERSION = 5`，自动刷新已缓存旧剧本。
 - **验证状态**：`tsc --noEmit` **0 错误通过**。
+
+---
+
+## 13. 修复全部卡池误显示为福袋召唤的问题（2026-11-20）
+
+- **根因**：Mooncell SMW `action=ask` 接口返回的 `SummonLuckybag` 属性格式为 `['t']`（福袋）或 `['f']`（非福袋）的字符串数组。原脚本 [collect_events_banners.py](file:///d:/git_proj/FGO_SA/collect_events_banners.py) 使用 `bool(po.get("SummonLuckybag"))`、原前端 [dataService.ts](file:///d:/git_proj/FGO_SA/app/src/services/dataService.ts) 使用 `Boolean(po.SummonLuckybag && po.SummonLuckybag.length > 0)`，导致非空列表 `['f']` 均被误判为 `true`。
+- **改动**：
+  - [collect_events_banners.py](file:///d:/git_proj/FGO_SA/collect_events_banners.py)：新增 `first_bool` 解析 `['t']`/`'true'`/`'1'`，支持 `--from-raw` 参数直接基于本地原始快照重新生成；重建 [events_banners.json](file:///d:/git_proj/FGO_SA/app/public/data/events_banners.json)（698 个卡池中仅 32 个真实福袋卡池 `luckybag=True`，其余恢复 `False`）并刷新 [cloud_manifest.json](file:///d:/git_proj/FGO_SA/app/public/data/cloud_manifest.json)。
+  - [dataService.ts](file:///d:/git_proj/FGO_SA/app/src/services/dataService.ts)：新增 `smwFirstBool` 修复 `syncFromMooncell` 在线同步解析；升级 `DATA_VERSION = '20261120v1'` 与 `EVENTS_BANNERS_OVERRIDES_KEY = 'events_banners_overrides_v2'` 并对旧版全 `true` 错误 IndexedDB blob 增加自动失效兜底。
+- **验证状态**：`tsc -p app/tsconfig.json --noEmit` **0 错误通过**；未提交或推送 Git。
+
+---
+
+## 14. 本机 JDK 17 + Android SDK 环境配置与 APK 打包验证（2026-11-20）
+
+- **环境配置（免管理员权限，已持久化写入当前用户 `HKCU\Environment`）**：
+  - `JAVA_HOME`：`C:\Users\孙羽\AppData\Local\Android\jdk-17`（Microsoft OpenJDK `17.0.21.1` LTS）
+  - `ANDROID_HOME` / `ANDROID_SDK_ROOT`：`C:\Users\孙羽\AppData\Local\Android\Sdk`（已安装 `cmdline-tools;latest`、`platform-tools`、`platforms;android-34`、`build-tools;34.0.0`）
+  - `Path`：已追加 `%JAVA_HOME%\bin`、`%ANDROID_HOME%\cmdline-tools\latest\bin`、`%ANDROID_HOME%\platform-tools`
+  - [app/android/local.properties](file:///d:/git_proj/FGO_SA/app/android/local.properties)：已写入 `sdk.dir=C:/Users/\u5b59\u7fbd/AppData/Local/Android/Sdk`（已被 Git 忽略）
+  - 用户级 `C:\Users\孙羽\.gradle\gradle.properties`：已配置 `-Xmx2048m -Dfile.encoding=UTF-8` 与本地代理 `127.0.0.1:7890`（不污染 Git 仓库），且已预下载 `gradle-8.2.1-all.zip`
+- **APK 构建验证**：
+  - `npm.cmd --prefix app run android:sync`：成功同步 Web 构建产物及离线资源至 Android 工程。
+  - `.\gradlew.bat assembleDebug --no-daemon`：`BUILD SUCCESSFUL`（82 actionable tasks），成功生成最新离线 APK [app-debug.apk](file:///d:/git_proj/FGO_SA/app/android/app/build/outputs/apk/debug/app-debug.apk)。
+- **未提交状态**：本地（第 13 节福袋修复 + 本次环境配置文件）未执行 Git 提交/推送；其中 `local.properties` 与 `~/.gradle/` 均不影响远程仓库。
+
+---
+
+## 15. 已有内容变更自动检测与更新增强（2026-11-20）
+
+- **前端已缓存关卡配置变更检测（[types.ts](file:///d:/git_proj/FGO_SA/app/src/types.ts)、[dataService.ts](file:///d:/git_proj/FGO_SA/app/src/services/dataService.ts)、[App.tsx](file:///d:/git_proj/FGO_SA/app/src/App.tsx)）**：
+  - `EventQuestConfigData` 新增 `revid` 字段；`loadEventQuestConfig` 在请求 `action=parse` 时同时获取并保存 Mooncell 页面 `revid`。
+  - 新增 `syncCachedQuestConfigs()`，在 `syncFromMooncell` 流程中按每批 50 个标题批量比对本地 IndexedDB `quest_configs` 中已缓存关卡的当前最新 `revid`：发现站点页面修订变化（或旧缓存无 `revid`）时，前 10 个主动热刷新并写入最新 `revid`，超出部分删除失效缓存以便下次打开重拉；`deltaParts` 与 `hasAnyUpdate` 纳入 `updatedQuestConfigs` 提示。
+- **云端已有从者/语音/礼装全量 `revid` 精准比对（[update_cloud_data.py](file:///d:/git_proj/FGO_SA/update_cloud_data.py)、[update-catalog-data.yml](file:///d:/git_proj/FGO_SA/.github/workflows/update-catalog-data.yml)）**：
+  - 修复 `update_cloud_data.py` 的 SQLite 写入语句以匹配 `data/mooncell.sqlite3` 真实表结构（`pages(page_id, namespace, title, redirect, revision_id, updated_at, model, wikitext, source_url)` 与 `catalog(kind, number, name, title, fields_json)`），并升级为批量拉取全部 ~487 骑英灵及语音页面的 `revid` 与本地对比（彻底消除仅靠最近 50 条 `recentchanges` 的漏检盲区）；新增 `--check-only` 与 `--check-all-ces` 参数。
+  - 在 [update-catalog-data.yml](file:///d:/git_proj/FGO_SA/.github/workflows/update-catalog-data.yml) 中配置缓存未命中时通过 `restore_data.py` 自动还原基线库，并启用 `--check-all-ces` 全量比对。
+- **验证结果**：
+  - `app\node_modules\.bin\tsc.cmd -p app\tsconfig.json --noEmit`：**0 错误通过**。
+  - `python -m py_compile update_cloud_data.py`：语法检查通过。
+  - `python -X utf8 update_cloud_data.py --check-only`：实测精准识别本地 4,248 页 SQLite 中已有 **2 骑从者修订**（`千利休`、`冲田总司〔Alter〕(Saber)`）、**4 个语音子页面修订**、**10 张缺失礼装与 12 张礼装修订**（共 28 页待更新，未改动本地数据文件）。
+  - **严格按用户要求**：未执行 Git 提交/推送，未执行 APK 打包。

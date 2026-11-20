@@ -393,6 +393,7 @@ export interface EventQuestConfigData {
   sections: { index: string; line: string; anchor: string; level: string }[];
   html: string;
   fetchedAt: string;
+  revid?: number;
 }
 
 export interface ServantFilterState {

@@ -85,7 +85,22 @@ async function idbPut<T>(storeName: string, val: T): Promise<void> {
   }
 }
 
-const DATA_VERSION = '20261119v4';
+async function idbDelete(storeName: string, key: IDBValidKey): Promise<void> {
+  try {
+    const db = await openOverrideDb();
+    return new Promise((resolve) => {
+      const tx = db.transaction(storeName, 'readwrite');
+      tx.objectStore(storeName).delete(key);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => resolve();
+    });
+  } catch {
+    // ignore storage errors
+  }
+}
+
+const DATA_VERSION = '20261120v1';
+const EVENTS_BANNERS_OVERRIDES_KEY = 'events_banners_overrides_v2';
 
 const CLOUD_DATA_BASES = [
   'https://cdn.jsdelivr.net/gh/Aragaki-Ayase/FGO_SA@main/app/public/data',
@@ -145,8 +160,14 @@ export async function loadEventsBanners(): Promise<EventsBannersPayload> {
     'data_blobs',
     'events_banners.json'
   );
+  const cachedBanners = cachedBlob?.data?.banners;
+  const isCorruptLuckybagBlob =
+    Array.isArray(cachedBanners) &&
+    cachedBanners.length > 10 &&
+    cachedBanners.every((b) => b.luckybag);
+
   let base: EventsBannersPayload;
-  if (cachedBlob?.data) {
+  if (cachedBlob?.data && !isCorruptLuckybagBlob) {
     base = structuredClone(cachedBlob.data);
   } else {
     const resp = await fetch(`./data/events_banners.json?v=${DATA_VERSION}`);
@@ -161,7 +182,7 @@ export async function loadEventsBanners(): Promise<EventsBannersPayload> {
     events?: EventSummary[];
     banners?: BannerSummary[];
     updatedAt?: string;
-  }>('meta', 'events_banners_overrides');
+  }>('meta', EVENTS_BANNERS_OVERRIDES_KEY);
 
   if (cachedOverrides) {
     if (cachedOverrides.events && cachedOverrides.events.length > 0) {
@@ -225,7 +246,7 @@ export async function loadEventQuestConfig(
     const qs =
       'action=parse&page=' +
       encodeURIComponent(targetTitle) +
-      '&prop=text|sections&disableeditsection=1&format=json&formatversion=2';
+      '&prop=text|sections|revid&disableeditsection=1&format=json&formatversion=2';
     try {
       const res = await fetchMooncellJson(qs);
       if (res?.parse?.text) {
@@ -242,6 +263,7 @@ export async function loadEventQuestConfig(
           sections,
           html: cleanedHtml,
           fetchedAt: new Date().toLocaleString('zh-CN', { hour12: false }),
+          revid: Number(res.parse.revid || 0),
         };
         await idbPut('quest_configs', { key: cacheKey, data });
         return data;
@@ -437,8 +459,78 @@ export interface UpdateProgress {
   updatedCes: number;
   updatedEvents?: number;
   updatedBanners?: number;
+  updatedQuestConfigs?: number;
   lastUpdated?: string;
   error?: string;
+}
+
+/**
+ * 批量检查本地已缓存的活动/主线关卡配置是否有远端页面修订更新（通过 revid 比对）。
+ * 发现变更时：前 10 个主动热刷新，其余失效删除以在下次打开时重拉最新配置。
+ */
+async function syncCachedQuestConfigs(): Promise<{ checked: number; updated: number }> {
+  const allCached = await idbGetAll<{ key: string; data: EventQuestConfigData }>('quest_configs');
+  const validItems = allCached.filter(
+    (item) => typeof item?.key === 'string' && item.key.startsWith('v2:') && item.data?.pageTitle
+  );
+  if (validItems.length === 0) {
+    return { checked: 0, updated: 0 };
+  }
+
+  const latestRevMap = new Map<string, number>();
+  const normMap = new Map<string, string>();
+  const uniqueTitles = Array.from(new Set(validItems.map((it) => it.data.pageTitle)));
+
+  for (let i = 0; i < uniqueTitles.length; i += 50) {
+    const batch = uniqueTitles.slice(i, i + 50);
+    const qs =
+      `action=query&titles=${encodeURIComponent(batch.join('|'))}` +
+      '&prop=revisions&rvprop=ids&format=json&formatversion=2';
+    const res = await fetchMooncellJson(qs);
+    for (const norm of res?.query?.normalized || []) {
+      if (norm?.from && norm?.to) {
+        normMap.set(String(norm.from), String(norm.to));
+      }
+    }
+    for (const p of res?.query?.pages || []) {
+      const revid = Number(p?.revisions?.[0]?.revid || 0);
+      if (p?.title && revid > 0) {
+        latestRevMap.set(String(p.title), revid);
+      }
+    }
+  }
+
+  const changedItems: { key: string; eventTitle: string }[] = [];
+  for (const item of validItems) {
+    const rawTitle = item.data.pageTitle;
+    const resolvedTitle = normMap.get(rawTitle) || rawTitle;
+    const latestRevid = latestRevMap.get(resolvedTitle) || latestRevMap.get(rawTitle) || 0;
+    const localRevid = Number(item.data.revid || 0);
+    if (!localRevid || (latestRevid > 0 && latestRevid !== localRevid)) {
+      changedItems.push({
+        key: item.key,
+        eventTitle: item.key.slice(3),
+      });
+    }
+  }
+
+  let updatedCount = 0;
+  for (let i = 0; i < changedItems.length; i++) {
+    const { key, eventTitle } = changedItems[i];
+    if (i < 10) {
+      try {
+        await loadEventQuestConfig(eventTitle, true);
+        updatedCount++;
+      } catch {
+        // 主动刷新失败时保持现有缓存，避免离线丢数据
+      }
+    } else {
+      await idbDelete('quest_configs', key);
+      updatedCount++;
+    }
+  }
+
+  return { checked: validItems.length, updated: updatedCount };
 }
 
 /** 轻量级纯 JS MD5（UTF-8），用于拼接 Mooncell media.fgo.wiki 静态图片地址 */
@@ -547,6 +639,11 @@ function smwFirstTs(arr: any): number {
   return 0;
 }
 
+function smwFirstBool(arr: any): boolean {
+  const s = smwFirstStr(arr).trim().toLowerCase();
+  return s === 't' || s === 'true' || s === '1' || s === 'yes' || s === '是';
+}
+
 function smwListTitles(arr: any): string[] {
   const out: string[] = [];
   if (!Array.isArray(arr)) return out;
@@ -619,11 +716,13 @@ export async function syncFromMooncell(
   newCes: CraftEssenceSummary[];
   syncedEvents: EventSummary[];
   syncedBanners: BannerSummary[];
+  updatedQuestConfigs: number;
 }> {
   let updatedServants = 0;
   let updatedCes = 0;
   let updatedEvents = 0;
   let updatedBanners = 0;
+  let updatedQuestConfigs = 0;
 
   onProgress({
     running: true,
@@ -871,7 +970,7 @@ export async function syncFromMooncell(
           bannerFull: imgFile ? buildMooncellMediaUrl(imgFile) : '',
           servants: smwListTitles(po['推荐召唤从者']),
           ces: smwListTitles(po['推荐召唤礼装']),
-          luckybag: Boolean(po.SummonLuckybag && po.SummonLuckybag.length > 0),
+          luckybag: smwFirstBool(po.SummonLuckybag),
         };
         syncedBanners.push(bn);
         const old = existingBnMap.get(pageTitle);
@@ -879,7 +978,8 @@ export async function syncFromMooncell(
           !old ||
           old.startCn !== bn.startCn ||
           old.endCn !== bn.endCn ||
-          old.servants.length !== bn.servants.length
+          old.servants.length !== bn.servants.length ||
+          old.luckybag !== bn.luckybag
         ) {
           updatedBanners++;
         }
@@ -895,7 +995,7 @@ export async function syncFromMooncell(
       key: string;
       events?: EventSummary[];
       banners?: BannerSummary[];
-    }>('meta', 'events_banners_overrides');
+    }>('meta', EVENTS_BANNERS_OVERRIDES_KEY);
 
     const mergedEvMap = new Map((prev?.events || []).map((e) => [e.title, e]));
     for (const e of syncedEvents) mergedEvMap.set(e.title, e);
@@ -904,7 +1004,7 @@ export async function syncFromMooncell(
     for (const b of syncedBanners) mergedBnMap.set(b.title, b);
 
     await idbPut('meta', {
-      key: 'events_banners_overrides',
+      key: EVENTS_BANNERS_OVERRIDES_KEY,
       events: Array.from(mergedEvMap.values()),
       banners: Array.from(mergedBnMap.values()),
       updatedAt: nowStr,
@@ -913,17 +1013,37 @@ export async function syncFromMooncell(
 
   await idbPut('meta', { key: 'lastUpdated', value: nowStr });
 
+  onProgress({
+    running: true,
+    phase: '正在检查已缓存的关卡配置是否有变更...',
+    current: 96,
+    total: 100,
+    updatedServants,
+    updatedCes,
+    updatedEvents,
+    updatedBanners,
+    updatedQuestConfigs,
+  });
+
+  try {
+    const qcRes = await syncCachedQuestConfigs();
+    updatedQuestConfigs = qcRes.updated;
+  } catch {
+    // 关卡配置修订检查失败不阻断整体流程
+  }
+
   const deltaParts: string[] = [];
   if (updatedServants > 0) deltaParts.push(`英灵 +${updatedServants}`);
   if (updatedCes > 0) deltaParts.push(`礼装 +${updatedCes}`);
   if (updatedEvents > 0) deltaParts.push(`活动更新 ${updatedEvents}`);
   if (updatedBanners > 0) deltaParts.push(`卡池更新 ${updatedBanners}`);
+  if (updatedQuestConfigs > 0) deltaParts.push(`关卡配置更新 ${updatedQuestConfigs}`);
 
   onProgress({
     running: false,
     phase:
       deltaParts.length === 0
-        ? `同步成功：当前已是最新数据（英灵 ${onlineSvtTotal} · 礼装 ${onlineCeTotal} · 活动/卡池已核对）`
+        ? `同步成功：当前已是最新数据（英灵 ${onlineSvtTotal} · 礼装 ${onlineCeTotal} · 活动/卡池/关卡已核对）`
         : `同步完成：${deltaParts.join(' · ')}（已保存本地）`,
     current: 100,
     total: 100,
@@ -931,6 +1051,7 @@ export async function syncFromMooncell(
     updatedCes,
     updatedEvents,
     updatedBanners,
+    updatedQuestConfigs,
     lastUpdated: nowStr,
   });
 
@@ -939,5 +1060,6 @@ export async function syncFromMooncell(
     newCes: addedCes,
     syncedEvents,
     syncedBanners,
+    updatedQuestConfigs,
   };
 }

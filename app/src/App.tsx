@@ -655,7 +655,7 @@ export const App: React.FC = () => {
         latestEventsBanners?.events || [],
         latestEventsBanners?.banners || []
       );
-      let hasAnyUpdate = cloudUpdatedCount > 0;
+      let hasAnyUpdate = cloudUpdatedCount > 0 || res.updatedQuestConfigs > 0;
       if (res.newServants.length > 0 || res.newCes.length > 0) {
         hasAnyUpdate = true;
         setCatalog((prev) => {

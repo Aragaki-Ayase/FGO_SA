@@ -1,7 +1,8 @@
 """
 Cloud catalog updater & manifest generator for GitHub Actions (Plan 1).
-1. Incrementally syncs new/updated Servants, Craft Essences, Voices, Mystic Codes,
-   Costumes, Items & Drop Rates into data/mooncell.sqlite3 (if SQLite exists or --full).
+1. Incrementally syncs new AND revised Servants, Voices, Craft Essences, Core Templates,
+   Mystic Codes, Costumes, Items & Drop Rates into data/mooncell.sqlite3
+   using full batch revision_id (revid) comparison (not just last 50 recentchanges).
 2. Rebuilds structured JSON data in app/public/data/ (catalog_summary, servants chunks,
    ces chunks, extras_catalog, events_banners, story_wars).
 3. Generates app/public/data/cloud_manifest.json with per-file short SHA-256 hashes so
@@ -10,13 +11,14 @@ Cloud catalog updater & manifest generator for GitHub Actions (Plan 1).
 import argparse
 import hashlib
 import json
+import re
 import sqlite3
 import subprocess
 import sys
 import time
 import urllib.request
 from pathlib import Path
-from urllib.parse import urlencode
+from urllib.parse import urlencode, quote
 
 ROOT = Path(__file__).resolve().parent
 DATA_DIR = ROOT / "data"
@@ -74,96 +76,222 @@ def fetch_pages_batch(titles: list[str]) -> list[dict]:
             revs = p.get("revisions") or []
             if not revs:
                 continue
-            content = revs[0].get("slots", {}).get("main", {}).get("content", "")
+            slot = revs[0].get("slots", {}).get("main", {})
+            content = slot.get("content", "")
+            m_redir = re.match(r"\s*#(?:REDIRECT|重定向)\s*\[\[([^\]]+)\]\]", content, re.I)
             results.append({
-                "pageid": int(p.get("pageid", 0)),
+                "page_id": int(p.get("pageid", 0)),
+                "namespace": int(p.get("ns", 0)),
                 "title": p.get("title", ""),
-                "revid": int(revs[0].get("revid", 0)),
-                "timestamp": revs[0].get("timestamp", ""),
-                "content": content,
+                "redirect": m_redir.group(1) if m_redir else None,
+                "revision_id": int(revs[0].get("revid", 0)),
+                "updated_at": revs[0].get("timestamp", ""),
+                "model": slot.get("contentmodel", "wikitext"),
+                "wikitext": content,
+                "source_url": "https://fgo.wiki/w/" + quote(p.get("title", ""), safe=""),
             })
-        time.sleep(0.35)
+        time.sleep(0.3)
     return results
 
 
-def sync_sqlite_incremental() -> bool:
+def fetch_latest_revids(titles: list[str]) -> tuple[dict[str, int], dict[str, str]]:
     """
-    Incrementally update data/mooncell.sqlite3 with any new/modified Servant, CE,
-    Voice, and Index pages from Mooncell. Returns True if SQLite is available.
+    Fetch latest revision_id for a list of page titles in batches of 50 (ids only, no wikitext).
+    Returns (revid_by_canonical_title, normalized_from_to_map).
     """
-    if not DB_PATH.exists():
-        print("SQLite DB not found locally; skipping SQLite servant/CE incremental sync.", flush=True)
-        return False
+    revids: dict[str, int] = {}
+    norm_map: dict[str, str] = {}
+    unique_titles = list(dict.fromkeys(t for t in titles if t))
+    batch_size = 50
+    for i in range(0, len(unique_titles), batch_size):
+        chunk = unique_titles[i : i + batch_size]
+        data = api_get_json({
+            "action": "query",
+            "titles": "|".join(chunk),
+            "prop": "revisions",
+            "rvprop": "ids",
+        })
+        q = data.get("query", {})
+        for n in q.get("normalized", []):
+            if n.get("from") and n.get("to"):
+                norm_map[n["from"]] = n["to"]
+        for p in q.get("pages", []):
+            if p.get("missing"):
+                continue
+            revs = p.get("revisions") or []
+            if p.get("title") and revs:
+                revids[p["title"]] = int(revs[0].get("revid", 0))
+        if i + batch_size < len(unique_titles):
+            time.sleep(0.25)
+    return revids, norm_map
 
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
 
-    def upsert_page(p: dict):
-        cur.execute(
-            """
-            INSERT INTO pages(title, pageid, revid, timestamp, content)
-            VALUES(?, ?, ?, ?, ?)
-            ON CONFLICT(title) DO UPDATE SET
-              pageid=excluded.pageid,
-              revid=excluded.revid,
-              timestamp=excluded.timestamp,
-              content=excluded.content
-            """,
-            (p["title"], p["pageid"], p["revid"], p["timestamp"], p["content"]),
-        )
-
-    print("1) Checking Mooncell catalog indexes (英灵图鉴/数据 & 礼装图鉴/数据)...", flush=True)
-    idx_pages = fetch_pages_batch(["英灵图鉴/数据", "礼装图鉴/数据"])
-    svt_titles = []
-    ce_titles = []
-    for p in idx_pages:
-        upsert_page(p)
-        blocks = parse_catalog_blocks(p["content"])
-        if p["title"] == "英灵图鉴/数据":
-            svt_titles = [b.get("name_link") or b.get("name_cn") or b.get("name") for b in blocks]
-        elif p["title"] == "礼装图鉴/数据":
-            ce_titles = [b.get("name_link") or b.get("name") for b in blocks]
-    conn.commit()
-
-    existing_titles = {row[0] for row in cur.execute("SELECT title FROM pages").fetchall()}
-    missing_svts = [t for t in svt_titles if t and t not in existing_titles]
-    missing_ces = [t for t in ce_titles if t and t not in existing_titles]
-    missing_voices = [f"{t}/语音" for t in svt_titles if t and f"{t}/语音" not in existing_titles]
-
-    # Also refresh recent changes (last 50 edits in main namespace) that already exist in our DB
-    rc = api_get_json({
-        "action": "query",
-        "list": "recentchanges",
-        "rcnamespace": "0",
-        "rclimit": "50",
-        "rcprop": "title",
-    })
-    rc_titles = list({
-        item["title"]
-        for item in rc.get("query", {}).get("recentchanges", [])
-        if item.get("title") in existing_titles
-    })
-
-    to_fetch = list(dict.fromkeys(missing_svts + missing_ces + missing_voices[:30] + rc_titles))
-    print(
-        f"   Missing svts={len(missing_svts)}, ces={len(missing_ces)}, "
-        f"voices={len(missing_voices)}, recent_refresh={len(rc_titles)} -> fetching {len(to_fetch)} pages",
-        flush=True,
+def upsert_page(cur: sqlite3.Cursor, p: dict):
+    cur.execute(
+        "INSERT OR REPLACE INTO pages VALUES (?,?,?,?,?,?,?,?,?)",
+        (
+            p["page_id"],
+            p["namespace"],
+            p["title"],
+            p["redirect"],
+            p["revision_id"],
+            p["updated_at"],
+            p["model"],
+            p["wikitext"],
+            p["source_url"],
+        ),
     )
-    if to_fetch:
-        fetched = fetch_pages_batch(to_fetch)
-        for p in fetched:
-            upsert_page(p)
-        conn.commit()
-        print(f"   Upserted {len(fetched)} pages into SQLite.", flush=True)
 
-    conn.close()
-    return True
+
+def update_catalog_table(conn: sqlite3.Connection, kind: str, blocks: list[dict]):
+    records = []
+    for fields in blocks:
+        num_str = fields.get("id", "")
+        if not num_str.isdigit():
+            continue
+        num = int(num_str)
+        target = fields.get("name_link") or fields.get("name_cn") or fields.get("name") or ""
+        name = fields.get("name_cn") or fields.get("name") or target
+        records.append((kind, num, name, target, json.dumps(fields, ensure_ascii=False)))
+
+    with conn:
+        conn.execute("DELETE FROM catalog WHERE kind=?", (kind,))
+        conn.executemany("INSERT INTO catalog VALUES (?,?,?,?,?)", records)
+    print(f"   Updated catalog table kind='{kind}': {len(records)} rows", flush=True)
 
 
 def run_step(cmd: list[str]):
     print(f">>> Running: {' '.join(cmd)}", flush=True)
     subprocess.run(cmd, cwd=ROOT, check=True)
+
+
+def sync_sqlite_incremental(check_all_ces: bool = False, dry_run: bool = False) -> bool:
+    """
+    Incrementally update data/mooncell.sqlite3 with any new or revised Servant, Voice,
+    Craft Essence, and Core Template pages from Mooncell using full revid comparison.
+    Returns True if SQLite is available.
+    """
+    if not DB_PATH.exists():
+        manifest_path = ROOT / "offline-data" / "manifest.json"
+        if manifest_path.exists():
+            print("SQLite DB not found locally; restoring baseline from offline-data/ ...", flush=True)
+            run_step([sys.executable, "-X", "utf8", "restore_data.py"])
+        else:
+            print("SQLite DB not found locally; skipping SQLite servant/CE incremental sync.", flush=True)
+            return False
+
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+
+    print("1) Checking Mooncell catalog indexes (英灵图鉴/数据, 礼装图鉴/数据, 技能一览/追加技能)...", flush=True)
+    idx_pages = fetch_pages_batch(["英灵图鉴/数据", "礼装图鉴/数据", "技能一览/追加技能"])
+    svt_blocks: list[dict] = []
+    ce_blocks: list[dict] = []
+    for p in idx_pages:
+        if p["title"] == "英灵图鉴/数据":
+            svt_blocks = parse_catalog_blocks(p["wikitext"])
+        elif p["title"] == "礼装图鉴/数据":
+            ce_blocks = parse_catalog_blocks(p["wikitext"])
+
+    svt_titles = [
+        b.get("name_link") or b.get("name_cn") or b.get("name")
+        for b in svt_blocks
+        if b.get("name_link") or b.get("name_cn") or b.get("name")
+    ]
+    ce_titles = [
+        b.get("name_link") or b.get("name")
+        for b in ce_blocks
+        if b.get("name_link") or b.get("name")
+    ]
+
+    if not dry_run:
+        with conn:
+            for p in idx_pages:
+                upsert_page(conn.cursor(), p)
+        if svt_blocks:
+            update_catalog_table(conn, "servant", svt_blocks)
+        if ce_blocks:
+            update_catalog_table(conn, "craft_essence", ce_blocks)
+
+    local_revids = {
+        row[0]: int(row[1])
+        for row in cur.execute("SELECT title, revision_id FROM pages").fetchall()
+    }
+    print(f"   Local SQLite has {len(local_revids)} pages; remote catalog svts={len(svt_titles)}, ces={len(ce_titles)}", flush=True)
+
+    def diff_titles(titles: list[str]) -> tuple[list[str], list[str]]:
+        revids, norm_map = fetch_latest_revids(titles)
+        missing: list[str] = []
+        changed: list[str] = []
+        for t in titles:
+            canon = norm_map.get(t, t)
+            remote_rev = revids.get(canon, 0)
+            if not remote_rev:
+                continue
+            local_rev = local_revids.get(canon) or local_revids.get(t)
+            if local_rev is None:
+                missing.append(canon)
+            elif remote_rev != local_rev:
+                changed.append(canon)
+        return list(dict.fromkeys(missing)), list(dict.fromkeys(changed))
+
+    print("2) Comparing all Servant page revids (~487 servants, batched by 50)...", flush=True)
+    missing_svts, changed_svts = diff_titles(svt_titles)
+
+    print("3) Comparing all Servant Voice subpage revids...", flush=True)
+    voice_titles = [f"{t}/语音" for t in svt_titles]
+    missing_voices, changed_voices = diff_titles(voice_titles)
+
+    ce_title_set = set(ce_titles)
+    missing_ces = [t for t in ce_titles if t not in local_revids]
+    changed_ces: list[str] = []
+    if check_all_ces:
+        print("4) Comparing ALL Craft Essence page revids (--check-all-ces)...", flush=True)
+        m_ces, changed_ces = diff_titles(ce_titles)
+        missing_ces = list(dict.fromkeys(missing_ces + m_ces))
+    else:
+        print("4) Checking recent 500 changes for Craft Essences / Core pages...", flush=True)
+        rc = api_get_json({
+            "action": "query",
+            "list": "recentchanges",
+            "rcnamespace": "0",
+            "rclimit": "500",
+            "rcprop": "title|ids",
+        })
+        for item in rc.get("query", {}).get("recentchanges", []):
+            title = item.get("title", "")
+            rc_rev = int(item.get("revid", 0))
+            if title in ce_title_set and title in local_revids and rc_rev and rc_rev != local_revids[title]:
+                if title not in changed_ces:
+                    changed_ces.append(title)
+
+    print(
+        f"   Summary -> Servants: +{len(missing_svts)} new, {len(changed_svts)} revised {changed_svts[:10]} | "
+        f"Voices: +{len(missing_voices)} new, {len(changed_voices)} revised | "
+        f"CEs: +{len(missing_ces)} new, {len(changed_ces)} revised {changed_ces[:10]}",
+        flush=True,
+    )
+
+    to_fetch = list(dict.fromkeys(
+        missing_svts + changed_svts + missing_voices + changed_voices + missing_ces + changed_ces
+    ))
+    print(f"   Total pages queued to fetch: {len(to_fetch)}", flush=True)
+
+    if dry_run:
+        print("   --check-only active: skipped writing SQLite and rebuilding JSONs.", flush=True)
+        conn.close()
+        return True
+
+    if to_fetch:
+        fetched = fetch_pages_batch(to_fetch)
+        with conn:
+            c = conn.cursor()
+            for p in fetched:
+                upsert_page(c, p)
+        print(f"   Upserted {len(fetched)} pages into SQLite.", flush=True)
+
+    conn.close()
+    return True
 
 
 def sha256_short(path: Path) -> str:
@@ -235,13 +363,19 @@ def build_cloud_manifest():
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--manifest-only", action="store_true", help="Only regenerate cloud_manifest.json")
+    parser.add_argument("--check-only", action="store_true", help="Read-only revid diff check without modifying SQLite or JSONs")
+    parser.add_argument("--check-all-ces", action="store_true", help="Also compare revids for all Craft Essence pages")
     args = parser.parse_args()
 
     if args.manifest_only:
         build_cloud_manifest()
         return
 
-    has_sqlite = sync_sqlite_incremental()
+    if args.check_only:
+        sync_sqlite_incremental(check_all_ces=args.check_all_ces, dry_run=True)
+        return
+
+    has_sqlite = sync_sqlite_incremental(check_all_ces=args.check_all_ces, dry_run=False)
     if has_sqlite:
         run_step([sys.executable, "-X", "utf8", "collect_extras.py"])
         run_step([sys.executable, "-X", "utf8", "build_app_data.py"])

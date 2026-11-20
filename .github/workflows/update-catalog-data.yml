@@ -2,8 +2,8 @@ name: Update Mooncell & Atlas Catalog Data
 
 on:
   schedule:
-    # 每周一北京时间 12:00 (UTC 04:00) 自动检查并更新全量离线数据包
-    - cron: '0 4 * * 1'
+    # 每天北京时间 19:30 (UTC 11:30) 自动检查并更新全量离线数据包
+    - cron: '30 11 * * *'
   workflow_dispatch:
 
 permissions:
@@ -32,8 +32,14 @@ jobs:
           restore-keys: |
             mooncell-sqlite-
 
+      - name: Restore baseline Mooncell SQLite if cache miss
+        run: |
+          if [ ! -f "data/mooncell.sqlite3" ] && [ -f "offline-data/manifest.json" ]; then
+            python -X utf8 restore_data.py
+          fi
+
       - name: Run incremental catalog & story data sync
-        run: python -X utf8 update_cloud_data.py
+        run: python -X utf8 update_cloud_data.py --check-all-ces
 
       - name: Commit & push updated JSON data if changed
         run: |
