@@ -5075,3 +5075,47 @@ select {
   border-color: #e11d48;
   transform: translateY(-1px);
 }
+
+/* 关卡配置全站搜索结果与页内可点击关卡链接 */
+.quest-search-summary-bar {
+  padding: 8px 12px;
+  margin-bottom: 10px;
+  border-radius: 10px;
+  background: #f1f5f9;
+  color: #475569;
+  font-size: 12.5px;
+}
+
+.quest-search-group {
+  margin-bottom: 16px;
+}
+
+.quest-search-group-title {
+  font-size: 12.5px;
+  font-weight: 800;
+  color: var(--text-muted);
+  margin: 4px 2px 8px;
+}
+
+.quest-search-cat-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  padding: 3px 8px;
+  border-radius: 7px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #1d4ed8;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  white-space: nowrap;
+}
+
+.mc-wiki-nav-link {
+  cursor: pointer;
+}
+
+.mc-wiki-nav-link:hover {
+  text-decoration: underline;
+}

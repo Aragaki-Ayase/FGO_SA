@@ -226,3 +226,18 @@
     - 为 `CapacitorHttp.get` 与 Web `fetch` 统一增加超时保护（云端连接 5s / 读取 8~15s，Mooncell 连接 6s / 读取 12s）。
   - [storyService.ts](file:///e:/work/FGO_SA/app/src/services/storyService.ts)：为 `fetchAtlasJson` 与 `fetchAtlasText` 增加 `connectTimeout: 5000` / `readTimeout: 8000~10000` 与 `AbortController` 超时，并将 `syncStoryWarsFromAtlas` 设为单次 6s 快速超时，避免国内不挂代理时卡死更新流程。
 - **验证状态**：`tsc --noEmit` **0 错误通过**，`npm.cmd --prefix app run android:sync`（`4.98s`）与 `.\gradlew.bat assembleDebug`（`21s`）打包成功，最新 APK `app/android/app/build/outputs/apk/debug/app-debug.apk`（`128.71 MB`，`2026/11/20 21:19:26`），并已推送至 `origin/main`。
+
+---
+
+## 19. 关卡配置中心 5 项体验与功能修复（2026-11-21）
+
+- **改动**：
+  - [QuestConfigHub.tsx](file:///e:/work/FGO_SA/app/src/components/QuestConfigHub.tsx)：
+    1. **移除「自由关卡」分类**：首页精简为 6 大分类卡片（活动关卡、迦勒底之门、主线剧情、冠位戴冠战、亚兹拉尔之庙、主线物语）。
+    2. **修复全部左上角返回按钮**：将所有返回按钮的 `onClick` 从失效的 `window.history.back()` 改为直接调用 React 状态回退函数（引入 `questPageStack` 多级页面栈），同时修正 `directPage`（如亚兹拉尔之庙）返回时的状态同步清理，与系统侧滑手势保持一致。
+    3. **全站关卡搜索**：汇总迦勒底之门、主线 6 大部 35 章、冠位戴冠战 8 职阶、亚兹拉尔之庙、主线物语 8 部及全部活动关卡，搜索框输入后直接实时展示全部分类匹配结果并支持点击直达。
+    4. **迦勒底之门子关卡配置**：参考 Mooncell `迦勒底之门` 结构升级为 12 项子关卡目录（每日任务、进阶关卡、强化任务、强化任务按职阶排序、幕间物语、魔术礼装任务、纪念任务、体验任务、测试关卡、监狱塔兑换、合众国开拓史兑换及原总览页），并支持点击渲染 HTML 中的图片/文字站内链接（`迦勒底之门/*`、`*/关卡配置`、`*/从者任务#...`）压栈跳转与自动滚动定位。
+  - [dataService.ts](file:///e:/work/FGO_SA/app/src/services/dataService.ts)：
+    - 升级 `sanitizeWikiHtml` 与 `loadEventQuestConfig`（缓存键升级为 `v3:`）：移除「快速跳转」框与原页面 `#toc` 目录；对「亚兹拉尔之庙」按 `<h3>` 试炼关卡块及 `sections` 同步倒序重排（最新关卡排最前）；将站内 `<a href="/w/...">` 安全转换为 `data-mc-page` / `data-mc-anchor` 以支持 App 内跳转。
+  - [App.tsx](file:///e:/work/FGO_SA/app/src/App.tsx) & [styles.css](file:///e:/work/FGO_SA/app/src/styles.css)：更新关卡配置搜索框提示文案，新增全局搜索结果与页内可点击链接样式。
+- **验证状态**：`tsc --noEmit` **0 错误通过**，`npm.cmd --prefix app run android:sync`（`5.44s`）与 `.\gradlew.bat assembleDebug`（`8s`）打包成功，最新本地 APK `app/android/app/build/outputs/apk/debug/app-debug.apk`（`129.89 MB`，`2026/11/21 12:35:35`），并已提交推送至 `origin/main`。

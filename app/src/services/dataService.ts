@@ -307,14 +307,114 @@ export async function loadEventsBanners(): Promise<EventsBannersPayload> {
   return base;
 }
 
+function reverseAzraelTrials(
+  rawHtml: string,
+  sections: { index: string; line: string; anchor: string; level: string }[]
+): {
+  html: string;
+  sections: { index: string; line: string; anchor: string; level: string }[];
+} {
+  // 在「地狱的试炼关卡」<h2> 之后，将各个 <h3> 试炼关卡块按倒序排列（最新关卡排在最前面）
+  const firstH3Idx = rawHtml.search(/<h3\b/i);
+  if (firstH3Idx === -1) {
+    return { html: rawHtml, sections };
+  }
+
+  const prefix = rawHtml.slice(0, firstH3Idx);
+  const rest = rawHtml.slice(firstH3Idx);
+
+  // 分离末尾的注释与外层闭合 div
+  let bodyPart = rest;
+  let suffix = '';
+  const tailMatch = rest.match(/(\s*<!--[\s\S]*?-->\s*<\/div>\s*)$/);
+  if (tailMatch && tailMatch.index !== undefined) {
+    bodyPart = rest.slice(0, tailMatch.index);
+    suffix = rest.slice(tailMatch.index);
+  }
+
+  const h3Parts = bodyPart.split(/(?=<h3\b)/i).filter((chunk) => chunk.trim().length > 0);
+  if (h3Parts.length <= 1) {
+    return { html: rawHtml, sections };
+  }
+
+  h3Parts.reverse();
+  const reversedHtml = prefix + h3Parts.join('\n') + suffix;
+
+  // 同步倒序 sections 中的 level 3 试炼条目，使顶部胶囊导航也是最新在最前
+  const lv3 = sections.filter((s) => Number(s.level) === 3).reverse();
+  let lv3Cursor = 0;
+  const newSections = sections.map((s) => {
+    if (Number(s.level) === 3 && lv3Cursor < lv3.length) {
+      return lv3[lv3Cursor++];
+    }
+    return s;
+  });
+
+  return { html: reversedHtml, sections: newSections };
+}
+
 function sanitizeWikiHtml(rawHtml: string): string {
-  return rawHtml
+  let html = rawHtml
     .replace(/<script[\s\S]*?<\/script>/gi, '')
     .replace(/src="\/\//g, 'src="https://')
     .replace(/srcset="[^"]*"/gi, '')
-    // 解除所有 Mooncell 外部/站内链接跳转，防止误跳出 App
-    .replace(/<a\b[^>]*>/gi, '<span class="mc-wiki-link-text">')
-    .replace(/<\/a>/gi, '</span>');
+    // 移除原网页的折叠目录块 (#toc)
+    .replace(/<div id="toc"[\s\S]*?<\/ul>\s*<\/div>/gi, '')
+    // 移除亚兹拉尔之庙等页面顶部的「快速跳转」提示框（包含 nomobile 与 nodesktop 两个块）
+    .replace(
+      /<div class="(?:nomobile[^"]*|nodesktop[^"]*)"[^>]*>\s*<div[^>]*>[\s\S]*?<\/div>\s*<div[^>]*>\s*<big><b>快速跳转<\/b><\/big>[\s\S]*?<\/div>\s*<\/div>/gi,
+      ''
+    );
+
+  // 将 <a href="..."> 转换为带 data-mc-page / data-mc-anchor 的安全内联节点，支持 App 内部点击跳转各子关卡配置
+  html = html.replace(/<a\b([^>]*)>/gi, (_full, attrs: string) => {
+    const hrefMatch = attrs.match(/\bhref="([^"]+)"/i);
+    if (!hrefMatch) {
+      return '<span class="mc-wiki-link-text">';
+    }
+    const rawHref = hrefMatch[1].trim();
+    if (rawHref.startsWith('#')) {
+      let anchor = rawHref.slice(1);
+      try {
+        anchor = decodeURIComponent(anchor);
+      } catch {
+        // ignore decode error
+      }
+      const safeAnchor = anchor.replace(/"/g, '&quot;');
+      return `<span class="mc-wiki-link-text mc-wiki-nav-link" data-mc-anchor="${safeAnchor}">`;
+    }
+    if (rawHref.startsWith('/w/')) {
+      const pathAndHash = rawHref.slice(3);
+      const [rawPage, rawHash = ''] = pathAndHash.split('#');
+      let page = rawPage;
+      let anchor = rawHash;
+      try {
+        page = decodeURIComponent(rawPage).replace(/_/g, ' ').trim();
+      } catch {
+        page = rawPage.replace(/_/g, ' ').trim();
+      }
+      try {
+        anchor = rawHash ? decodeURIComponent(rawHash).trim() : '';
+      } catch {
+        anchor = rawHash.trim();
+      }
+      // 排除文件/分类/特殊页面
+      if (
+        page &&
+        !page.startsWith('文件:') &&
+        !page.startsWith('File:') &&
+        !page.startsWith('分类:') &&
+        !page.startsWith('特殊:')
+      ) {
+        const safePage = page.replace(/"/g, '&quot;');
+        const safeAnchor = anchor.replace(/"/g, '&quot;');
+        return `<span class="mc-wiki-link-text mc-wiki-nav-link" data-mc-page="${safePage}" data-mc-anchor="${safeAnchor}">`;
+      }
+    }
+    return '<span class="mc-wiki-link-text">';
+  });
+
+  return html.replace(/<\/a>/gi, '</span>');
 }
 
 /**
@@ -326,7 +426,7 @@ export async function loadEventQuestConfig(
   forceRefresh = false
 ): Promise<EventQuestConfigData> {
   const cleanTitle = eventTitle.trim();
-  const cacheKey = `v2:${cleanTitle}`;
+  const cacheKey = `v3:${cleanTitle}`;
   if (!forceRefresh) {
     const cached = await idbGet<{ key: string; data: EventQuestConfigData }>('quest_configs', cacheKey);
     if (cached?.data) {
@@ -334,7 +434,13 @@ export async function loadEventQuestConfig(
     }
   }
 
-  const candidates = [`${cleanTitle}/关卡配置`, cleanTitle];
+  const candidates =
+    cleanTitle.includes('/关卡配置') ||
+    cleanTitle.includes('/从者任务') ||
+    cleanTitle.startsWith('迦勒底之门/')
+      ? [cleanTitle]
+      : [`${cleanTitle}/关卡配置`, cleanTitle];
+
   for (let i = 0; i < candidates.length; i++) {
     const targetTitle = candidates[i];
     const qs =
@@ -344,16 +450,23 @@ export async function loadEventQuestConfig(
     try {
       const res = await fetchMooncellJson(qs);
       if (res?.parse?.text) {
-        const cleanedHtml = sanitizeWikiHtml(res.parse.text);
-        const sections = (res.parse.sections || []).map((s: any) => ({
+        let cleanedHtml = sanitizeWikiHtml(res.parse.text);
+        let sections = (res.parse.sections || []).map((s: any) => ({
           index: String(s.index || ''),
           line: String(s.line || '').replace(/<[^>]+>/g, ''),
           anchor: String(s.anchor || ''),
           level: String(s.level || '2'),
         }));
+
+        if (cleanTitle.includes('亚兹拉尔之庙') || targetTitle.includes('亚兹拉尔之庙')) {
+          const reversed = reverseAzraelTrials(cleanedHtml, sections);
+          cleanedHtml = reversed.html;
+          sections = reversed.sections;
+        }
+
         const data: EventQuestConfigData = {
           pageTitle: res.parse.title || targetTitle,
-          isSubpage: i === 0,
+          isSubpage: targetTitle.endsWith('/关卡配置'),
           sections,
           html: cleanedHtml,
           fetchedAt: new Date().toLocaleString('zh-CN', { hour12: false }),
@@ -366,7 +479,7 @@ export async function loadEventQuestConfig(
       // try next candidate
     }
   }
-  throw new Error('未能获取到该活动的关卡配置（可能处于离线状态或站点尚未建立关卡子页面）');
+  throw new Error('未能获取到该关卡配置（可能处于离线状态或站点尚未建立对应页面）');
 }
 
 export async function loadCatalogSummary(): Promise<CatalogSummaryPayload> {
@@ -586,7 +699,7 @@ export interface UpdateProgress {
 async function syncCachedQuestConfigs(): Promise<{ checked: number; updated: number }> {
   const allCached = await idbGetAll<{ key: string; data: EventQuestConfigData }>('quest_configs');
   const validItems = allCached.filter(
-    (item) => typeof item?.key === 'string' && item.key.startsWith('v2:') && item.data?.pageTitle
+    (item) => typeof item?.key === 'string' && item.key.startsWith('v3:') && item.data?.pageTitle
   );
   if (validItems.length === 0) {
     return { checked: 0, updated: 0 };
