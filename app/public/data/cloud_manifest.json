@@ -1,6 +1,6 @@
 {
-  "version": "202611210438",
-  "updatedAt": "2026-11-21 10:45",
+  "version": "202611211807",
+  "updatedAt": "2026-11-21 18:07",
   "counts": {
     "servant": 487,
     "craftEssence": 2720,
@@ -16,9 +16,9 @@
   "files": {
     "catalog_summary.json": "99a32ef511fbcb89",
     "extras_catalog.json": "4602d3d3d50225a7",
-    "events_banners.json": "60a60dfd136aa812",
-    "story_wars.json": "0d241a1dd72bdd92",
-    "servant_stories.json": "bd3f677019cca4fc",
+    "events_banners.json": "b90c5aee3f144a9a",
+    "story_wars.json": "4927dc59a048c83a",
+    "servant_stories.json": "f8048f957648d1c0",
     "servants/svt_101_150.json": "d6ad0f30d6de88a3",
     "servants/svt_151_200.json": "7bb17bcbbe66df82",
     "servants/svt_1_50.json": "4dd534d3ab857ff1",
@@ -26,7 +26,7 @@
     "servants/svt_251_300.json": "2a4d0eb4aeedd797",
     "servants/svt_301_350.json": "29aa0f542a335efc",
     "servants/svt_351_400.json": "ee594b9b8827b80e",
-    "servants/svt_401_450.json": "cb85c465bf34c4fe",
+    "servants/svt_401_450.json": "eb3a7cb1a6d914be",
     "servants/svt_451_500.json": "c22bb97a18ae4f01",
     "servants/svt_51_100.json": "9e5e6f28786460b5",
     "ces/ce_1001_1200.json": "9e6b2fa1d8ca88d8",
