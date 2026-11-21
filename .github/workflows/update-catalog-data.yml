@@ -51,6 +51,11 @@ jobs:
           if git diff --cached --quiet; then
             echo "No data changes detected."
           else
+            CHANGED_FILES=$(git diff --cached --name-only -- app/public/data/)
             git commit -m "chore(data): auto-update Mooncell & Atlas catalog data"
             git push
+            # 主动触发 jsDelivr 缓存刷新，避免国内线路拉取到旧版 @main 缓存
+            for f in $CHANGED_FILES; do
+              curl -fsS --max-time 10 "https://purge.jsdelivr.net/gh/${GITHUB_REPOSITORY}@main/${f}" >/dev/null || true
+            done
           fi

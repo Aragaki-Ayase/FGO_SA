@@ -241,3 +241,14 @@
     - 升级 `sanitizeWikiHtml` 与 `loadEventQuestConfig`（缓存键升级为 `v3:`）：移除「快速跳转」框与原页面 `#toc` 目录；对「亚兹拉尔之庙」按 `<h3>` 试炼关卡块及 `sections` 同步倒序重排（最新关卡排最前）；将站内 `<a href="/w/...">` 安全转换为 `data-mc-page` / `data-mc-anchor` 以支持 App 内跳转。
   - [App.tsx](file:///e:/work/FGO_SA/app/src/App.tsx) & [styles.css](file:///e:/work/FGO_SA/app/src/styles.css)：更新关卡配置搜索框提示文案，新增全局搜索结果与页内可点击链接样式。
 - **验证状态**：`tsc --noEmit` **0 错误通过**，`npm.cmd --prefix app run android:sync`（`5.44s`）与 `.\gradlew.bat assembleDebug`（`8s`）打包成功，最新本地 APK `app/android/app/build/outputs/apk/debug/app-debug.apk`（`129.89 MB`，`2026/11/21 12:35:35`），并已提交推送至 `origin/main`。
+
+---
+
+## 20. 消除 jsDelivr 旧缓存截胡、自动 Purge 缓存与升级 APK 版本号 v1.1（2026-11-21）
+
+- **改动**：
+  - [dataService.ts](file:///e:/work/FGO_SA/app/src/services/dataService.ts)：将 `raceCloudManifest()` 从“谁先回就用谁”升级为 `Promise.allSettled` 并发探测全部线路后，优先选取 `updatedAt` 最新的清单（同为最新时优先最快线路），避免 jsDelivr 对 `@main` 的旧缓存抢先返回导致漏掉刚提交的更新（如 `#2720 魔法使之夜`）。
+  - [update-catalog-data.yml](file:///e:/work/FGO_SA/.github/workflows/update-catalog-data.yml)：在 `git push` 后对变动的数据文件自动调用 `https://purge.jsdelivr.net/gh/...` 刷新 jsDelivr 缓存。
+  - [build.gradle](file:///e:/work/FGO_SA/app/android/app/build.gradle)：将 `versionCode` 递增至 `2`、`versionName` 升至 `"1.1"`，便于手机覆盖安装时清晰辨认新版。
+  - 同步 `471901f` 最新云端数据（含 `#2720 魔法使之夜`）至本地 `app/public/data/` 并主动刷新线上 jsDelivr 缓存。
+- **验证与打包**：`tsc --noEmit` **0 错误通过**，`npm.cmd --prefix app run android:sync`（`5.56s`）与 `.\gradlew.bat assembleDebug`（`10s`）构建成功，最新 APK `app/android/app/build/outputs/apk/debug/app-debug.apk`（`v1.1`，`128.72 MB`，`2026/11/21 12:51:14`），并已提交推送至 `origin/main`。

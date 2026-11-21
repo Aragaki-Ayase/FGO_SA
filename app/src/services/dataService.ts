@@ -151,46 +151,43 @@ async function fetchJsonWithTimeout<T>(
 }
 
 /**
- * 并行竞速拉取 cloud_manifest.json：谁最先返回合法清单就锁定该线路，
- * 避免国内网络下某个海外节点黑洞导致整条更新链路长时间卡死。
+ * 并发探测全部云端线路拉取 cloud_manifest.json（单线路 5s 超时）：
+ * 从成功返回的线路中挑选 updatedAt 最新的清单（同为最新时优先最快线路），
+ * 彻底避免 jsDelivr 对 @main 的 CDN 旧缓存抢先返回导致漏掉刚提交的更新。
  */
 async function raceCloudManifest(): Promise<CloudManifest> {
   const bust = `t=${Date.now()}`;
-  const tasks = CLOUD_DATA_BASES.map((base) =>
-    fetchJsonWithTimeout<CloudManifest>(`${base}/cloud_manifest.json?${bust}`, 5000, 8000).then(
+  const tasks = CLOUD_DATA_BASES.map((base, idx) =>
+    fetchJsonWithTimeout<CloudManifest>(`${base}/cloud_manifest.json?${bust}`, 5000, 6000).then(
       (manifest) => {
         if (!manifest || typeof manifest !== 'object' || !manifest.files) {
           throw new Error('invalid manifest');
         }
-        return { base, manifest };
+        return { base, manifest, idx, doneAt: Date.now() };
       }
     )
   );
 
-  // 兼容 ES2020：手写 Promise.any，任一线路率先成功即刻返回
-  const winner = await new Promise<{ base: string; manifest: CloudManifest }>((resolve, reject) => {
-    let settled = false;
-    let failedCount = 0;
-    let lastErr: any = null;
-    for (const p of tasks) {
-      p.then(
-        (val) => {
-          if (!settled) {
-            settled = true;
-            resolve(val);
-          }
-        },
-        (err) => {
-          lastErr = err;
-          failedCount++;
-          if (failedCount === tasks.length && !settled) {
-            reject(lastErr || new Error('全部云端线路均不可达'));
-          }
-        }
-      );
-    }
+  const settled = await Promise.allSettled(tasks);
+  const successes = settled
+    .filter(
+      (r): r is PromiseFulfilledResult<{ base: string; manifest: CloudManifest; idx: number; doneAt: number }> =>
+        r.status === 'fulfilled'
+    )
+    .map((r) => r.value);
+
+  if (successes.length === 0) {
+    throw new Error('全部云端线路均不可达');
+  }
+
+  // 先按 updatedAt 字符串降序选最新数据，再按响应完成时间升序选最快线路
+  successes.sort((a, b) => {
+    const cmp = String(b.manifest.updatedAt || '').localeCompare(String(a.manifest.updatedAt || ''));
+    if (cmp !== 0) return cmp;
+    return a.doneAt - b.doneAt;
   });
 
+  const winner = successes[0];
   preferredCloudBase = winner.base;
   return winner.manifest;
 }
