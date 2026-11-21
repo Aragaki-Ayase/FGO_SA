@@ -1,6 +1,6 @@
 {
   "appId": "wiki.fgo.mooncell.offline",
-  "appName": "Mooncell图鉴",
+  "appName": "迦勒底档案",
   "webDir": "dist",
   "server": {
     "androidScheme": "https"

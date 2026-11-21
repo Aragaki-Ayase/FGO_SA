@@ -261,3 +261,23 @@
   - [MainActivity.java](file:///e:/work/FGO_SA/app/android/app/src/main/java/wiki/fgo/mooncell/offline/MainActivity.java)：新增 `NativeMediaBridge`（挂载至 `window.MooncellNative.saveImage`），后台线程通过 `HttpURLConnection` 拉取原图，Android 10+ 使用 `MediaStore.Images.Media` 免权限写入系统相册 `Pictures/Mooncell图鉴/`（Android 9 以下写入外部 Pictures 目录并扫描相册），完成后弹原生 `Toast` 并回调前端 `window.__onNativeImageSaveResult`。
   - [CardLightbox.tsx](file:///e:/work/FGO_SA/app/src/components/CardLightbox.tsx)：Android 原生端调用 `MooncellNative.saveImage` 直接保存至手机相册；Web 浏览器端优先走 Vite `/mooncell-media` 同源代理绕过 `media.fgo.wiki` CORS 限制并触发真实文件下载，按钮同步展示保存反馈提示。
 - **验证状态**：`tsc --noEmit` **0 错误通过**，`npm.cmd --prefix app run android:sync`（`5.06s`）与 `.\gradlew.bat assembleDebug`（`8s`）打包成功，版本号递增至 `v1.2 (versionCode 3)`，最新 APK `app/android/app/build/outputs/apk/debug/app-debug.apk`（`128.72 MB`，`2026/11/21 13:29:30`），并已提交推送至 `origin/main`。
+
+---
+
+## 22. APK 体积瘦身（方案 2：礼装大卡面改为按需加载 + 本地持久化缓存，2026-11-21）
+
+- **改动**：
+  - [storyService.ts](file:///e:/work/FGO_SA/app/src/services/storyService.ts)：扩展 `toProxiedStaticUrl` 与 `fetchImageBlob`，支持对 `https://media.fgo.wiki/...` 图片在 Web 端走 `/mooncell-media` 同源代理、在 Android 端走 `CapacitorHttp`（`responseType: 'blob'` 绕过 CORS）并持久化写入 IndexedDB `image_cache`。
+  - [SmartImage.tsx](file:///e:/work/FGO_SA/app/src/components/SmartImage.tsx)：自动识别指向 `/assets/cards/ce/` 的礼装大卡面，跳过无意义的本地 404 探测，直接走 IndexedDB 持久化缓存 + 按需远端拉取（首次打开 <1s，再次打开本地秒开且断网可看），异常时自动回退至原链接或本地礼装头像。
+  - [.github/workflows/build-android-apk.yml](file:///e:/work/FGO_SA/.github/workflows/build-android-apk.yml)：将 `download_assets.py` 改为仅预打包 `--kinds ui_icon skill_icon mat_icon svt_icon ce_icon svt_card`（不再下载 56 MB 的 `ce_card`）；同时清理了本地 `app/public/assets/cards/ce/` 目录。
+- **验证状态**：`tsc --noEmit` **0 错误通过**，`npm.cmd --prefix app run android:sync`（`3.07s`）与 `.\gradlew.bat assembleDebug`（`7s`）打包成功，版本号保持 `v1.3 (versionCode 4)`，最新 APK `app/android/app/build/outputs/apk/debug/app-debug.apk` 体积由 `128.72 MB` 降至 **`72.23 MB`**，并已提交推送至 `origin/main`。
+
+---
+
+## 23. 应用名称统一更新为「迦勒底档案」（2026-11-21）
+
+- **改动**：
+  - [strings.xml](file:///e:/work/FGO_SA/app/android/app/src/main/res/values/strings.xml) & [capacitor.config.json](file:///e:/work/FGO_SA/app/capacitor.config.json)：Android 桌面图标名与应用名更新为 `迦勒底档案`（保留原 `applicationId` 以支持无缝覆盖安装）。
+  - [App.tsx](file:///e:/work/FGO_SA/app/src/App.tsx) & [index.html](file:///e:/work/FGO_SA/app/index.html)：顶部导航栏主标题与网页标题更新为 `迦勒底档案`。
+  - [MainActivity.java](file:///e:/work/FGO_SA/app/android/app/src/main/java/wiki/fgo/mooncell/offline/MainActivity.java)：原图保存系统相册子目录更新为 `Pictures/迦勒底档案/`。
+- **验证与打包**：版本号按要求保持 `v1.3 (versionCode 4)` 不变，最新 APK `app/android/app/build/outputs/apk/debug/app-debug.apk`（`72.23 MB`，`2026/11/21 18:00:10`），已同步推送至 `origin/main`。

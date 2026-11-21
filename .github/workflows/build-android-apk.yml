@@ -23,7 +23,8 @@ jobs:
           if [ ! -f "data/mooncell.sqlite3" ]; then python restore_data.py; fi
           python -X utf8 build_app_data.py
           python -X utf8 collect_events_banners.py
-          python -X utf8 download_assets.py --workers 16
+          # 礼装大卡面 (ce_card) 已改为按需加载+本地持久化缓存，不再预打入 APK（可省 ~56 MB 体积）
+          python -X utf8 download_assets.py --workers 16 --kinds ui_icon skill_icon mat_icon svt_icon ce_icon svt_card
 
       - name: Set up Node.js
         uses: actions/setup-node@v4

@@ -837,7 +837,7 @@ export const App: React.FC = () => {
             <Sparkles size={18} />
           </div>
           <div>
-            <h1 className="brand-title">Mooncell 迦勒底图鉴</h1>
+            <h1 className="brand-title">迦勒底档案</h1>
             <span className="brand-subtitle">
               英灵 {catalog?.counts.servant || 487} · 概念礼装 {catalog?.counts.craftEssence || 2719}
             </span>

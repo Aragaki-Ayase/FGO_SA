@@ -129,6 +129,9 @@ function toProxiedStaticUrl(rawUrl: string): string {
   if (rawUrl.startsWith('https://static.atlasacademy.io/')) {
     return rawUrl.replace('https://static.atlasacademy.io', '/atlas-static');
   }
+  if (rawUrl.startsWith('https://media.fgo.wiki/')) {
+    return rawUrl.replace('https://media.fgo.wiki', '/mooncell-media');
+  }
   return rawUrl;
 }
 
@@ -485,12 +488,67 @@ interface CachedImageRecord {
 const imageObjectUrlMap = new Map<string, string>();
 const inflightImageLoads = new Map<string, Promise<string | null>>();
 
-async function fetchImageBlob(rawUrl: string): Promise<Blob | null> {
-  // Web 端优先走 Vite 代理再回退直连；Android 端直接 fetch（static.atlasacademy.io 允许 CORS）
-  const candidates = Capacitor.isNativePlatform()
-    ? [rawUrl]
-    : Array.from(new Set([toProxiedStaticUrl(rawUrl), rawUrl]));
+function base64ToBlob(base64: string, contentType: string): Blob | null {
+  try {
+    const clean = base64.includes(',') ? base64.split(',')[1] : base64;
+    const bin = atob(clean);
+    const len = bin.length;
+    const bytes = new Uint8Array(len);
+    for (let i = 0; i < len; i++) {
+      bytes[i] = bin.charCodeAt(i);
+    }
+    return new Blob([bytes], { type: contentType || 'image/png' });
+  } catch {
+    return null;
+  }
+}
 
+async function fetchImageBlob(rawUrl: string): Promise<Blob | null> {
+  // Android 原生端：对 media.fgo.wiki 直接走 CapacitorHttp（绕过 WebView CORS），其余先 fetch 再兜底
+  if (Capacitor.isNativePlatform()) {
+    const useNativeHttpFirst = rawUrl.startsWith('https://media.fgo.wiki/');
+    if (!useNativeHttpFirst) {
+      try {
+        const resp = await fetch(rawUrl);
+        if (resp.status === 404) return null;
+        if (resp.ok) {
+          const ct = resp.headers.get('content-type') || '';
+          if (!ct.includes('text/html')) {
+            const blob = await resp.blob();
+            if (blob && blob.size > 0) return blob;
+          }
+        }
+      } catch {
+        // 回退原生 CapacitorHttp
+      }
+    }
+    try {
+      const res = await CapacitorHttp.get({
+        url: rawUrl,
+        responseType: 'blob',
+        headers: {
+          'User-Agent': 'Mozilla/5.0 MooncellOfflineApp/1.0',
+          Referer: 'https://fgo.wiki/',
+        },
+        connectTimeout: 6000,
+        readTimeout: 12000,
+      });
+      if (res.status === 404) return null;
+      if (res.status === 200 && typeof res.data === 'string' && res.data.length > 0) {
+        const ctHeader =
+          res.headers?.['content-type'] || res.headers?.['Content-Type'] || 'image/png';
+        if (!String(ctHeader).includes('text/html')) {
+          return base64ToBlob(res.data, String(ctHeader));
+        }
+      }
+    } catch {
+      // ignore
+    }
+    return null;
+  }
+
+  // Web 端优先走 Vite 代理再回退直连
+  const candidates = Array.from(new Set([toProxiedStaticUrl(rawUrl), rawUrl]));
   for (const target of candidates) {
     try {
       const resp = await fetch(target);

@@ -93,7 +93,7 @@ public class MainActivity extends BridgeActivity {
                         values.put(MediaStore.Images.Media.MIME_TYPE, mimeType);
                         values.put(
                             MediaStore.Images.Media.RELATIVE_PATH,
-                            Environment.DIRECTORY_PICTURES + "/Mooncell图鉴"
+                            Environment.DIRECTORY_PICTURES + "/迦勒底档案"
                         );
                         values.put(MediaStore.Images.Media.IS_PENDING, 1);
 
@@ -113,7 +113,7 @@ public class MainActivity extends BridgeActivity {
                         values.clear();
                         values.put(MediaStore.Images.Media.IS_PENDING, 0);
                         resolver.update(uri, values, null, null);
-                        savedDesc = "已保存到相册：Pictures/Mooncell图鉴/" + safeName;
+                        savedDesc = "已保存到相册：Pictures/迦勒底档案/" + safeName;
                     } else {
                         File dir = new File(
                             getExternalFilesDir(Environment.DIRECTORY_PICTURES),
