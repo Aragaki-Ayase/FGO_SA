@@ -100,7 +100,7 @@ async function idbDelete(storeName: string, key: IDBValidKey): Promise<void> {
   }
 }
 
-const DATA_VERSION = '20261120v1';
+const DATA_VERSION = '20261121v2';
 const EVENTS_BANNERS_OVERRIDES_KEY = 'events_banners_overrides_v2';
 
 const CLOUD_DATA_BASES = [

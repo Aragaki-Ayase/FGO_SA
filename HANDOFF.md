@@ -281,3 +281,13 @@
   - [App.tsx](file:///e:/work/FGO_SA/app/src/App.tsx) & [index.html](file:///e:/work/FGO_SA/app/index.html)：顶部导航栏主标题与网页标题更新为 `迦勒底档案`。
   - [MainActivity.java](file:///e:/work/FGO_SA/app/android/app/src/main/java/wiki/fgo/mooncell/offline/MainActivity.java)：原图保存系统相册子目录更新为 `Pictures/迦勒底档案/`。
 - **验证与打包**：版本号按要求保持 `v1.3 (versionCode 4)` 不变，最新 APK `app/android/app/build/outputs/apk/debug/app-debug.apk`（`72.23 MB`，`2026/11/21 18:00:10`），已同步推送至 `origin/main`。
+
+---
+
+## 24. 修复概念礼装「日常刷本加成」多维筛选漏匹配（2026-11-21）
+
+- **根因**：[build_app_data.py](file:///e:/work/FGO_SA/build_app_data.py) 中 `CE_EFFECT_TAG_RULES` 的「日常刷本加成」正则写成了 `牵绊.*提升`、`EXP.*提升`、`QP.*提升`，但 FGO 国服礼装文案实际使用「增加」「牵绊值」「御主经验」「魔术礼装经验」「掉落获得的QP量增加」等表述，导致牵绊/EXP 标签为 0 张、QP 标签仅匹配到 8 张固定数值卡。
+- **改动**：
+  - [build_app_data.py](file:///e:/work/FGO_SA/build_app_data.py)：修正两处 `CE_EFFECT_TAG_RULES` 中三项正则，覆盖中文（`增加/提升`、`牵绊值/牵绊点数`、`御主/魔术礼装经验`、`QP量/获得量`）与日文表述。
+  - 原地重算 `app/public/data/catalog_summary.json` 及全部 14 个 `ces/ce_*.json` 分片的 `effectTags`（共修复 433 张礼装：牵绊点数加成 `0 → 59` 张、御主/魔术礼装 EXP 加成 `0 → 393` 张、QP 获得量加成 `8 → 41` 张），并同步更新 `cloud_manifest.json` 哈希与 [dataService.ts](file:///e:/work/FGO_SA/app/src/services/dataService.ts) `DATA_VERSION`。
+- **验证状态**：`python -m py_compile build_app_data.py` 与 `npm.cmd --prefix app run build`（`vite build`）均通过；尚未提交推送 Git 或重打 APK（推送至 GitHub 后手机现有 App 点击「更新数据」即可直接热更新生效）。
