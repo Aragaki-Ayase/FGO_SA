@@ -1,6 +1,6 @@
 {
-  "version": "202611211807",
-  "updatedAt": "2026-11-21 18:07",
+  "version": "202611211913",
+  "updatedAt": "2026-11-21 19:13",
   "counts": {
     "servant": 487,
     "craftEssence": 2720,
@@ -16,9 +16,9 @@
   "files": {
     "catalog_summary.json": "99a32ef511fbcb89",
     "extras_catalog.json": "4602d3d3d50225a7",
-    "events_banners.json": "b90c5aee3f144a9a",
-    "story_wars.json": "4927dc59a048c83a",
-    "servant_stories.json": "f8048f957648d1c0",
+    "events_banners.json": "ae1a6d80148bf85b",
+    "story_wars.json": "6082353ca2d6fc92",
+    "servant_stories.json": "97594bb0bcf88832",
     "servants/svt_101_150.json": "d6ad0f30d6de88a3",
     "servants/svt_151_200.json": "7bb17bcbbe66df82",
     "servants/svt_1_50.json": "4dd534d3ab857ff1",
