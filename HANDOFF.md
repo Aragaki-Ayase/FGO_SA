@@ -252,3 +252,12 @@
   - [build.gradle](file:///e:/work/FGO_SA/app/android/app/build.gradle)：将 `versionCode` 递增至 `2`、`versionName` 升至 `"1.1"`，便于手机覆盖安装时清晰辨认新版。
   - 同步 `471901f` 最新云端数据（含 `#2720 魔法使之夜`）至本地 `app/public/data/` 并主动刷新线上 jsDelivr 缓存。
 - **验证与打包**：`tsc --noEmit` **0 错误通过**，`npm.cmd --prefix app run android:sync`（`5.56s`）与 `.\gradlew.bat assembleDebug`（`10s`）构建成功，最新 APK `app/android/app/build/outputs/apk/debug/app-debug.apk`（`v1.1`，`128.72 MB`，`2026/11/21 12:51:14`），并已提交推送至 `origin/main`。
+
+---
+
+## 21. 修复英灵/礼装原始图片下载功能（2026-11-21）
+
+- **改动**：
+  - [MainActivity.java](file:///e:/work/FGO_SA/app/android/app/src/main/java/wiki/fgo/mooncell/offline/MainActivity.java)：新增 `NativeMediaBridge`（挂载至 `window.MooncellNative.saveImage`），后台线程通过 `HttpURLConnection` 拉取原图，Android 10+ 使用 `MediaStore.Images.Media` 免权限写入系统相册 `Pictures/Mooncell图鉴/`（Android 9 以下写入外部 Pictures 目录并扫描相册），完成后弹原生 `Toast` 并回调前端 `window.__onNativeImageSaveResult`。
+  - [CardLightbox.tsx](file:///e:/work/FGO_SA/app/src/components/CardLightbox.tsx)：Android 原生端调用 `MooncellNative.saveImage` 直接保存至手机相册；Web 浏览器端优先走 Vite `/mooncell-media` 同源代理绕过 `media.fgo.wiki` CORS 限制并触发真实文件下载，按钮同步展示保存反馈提示。
+- **验证状态**：`tsc --noEmit` **0 错误通过**，`npm.cmd --prefix app run android:sync`（`5.06s`）与 `.\gradlew.bat assembleDebug`（`8s`）打包成功，版本号递增至 `v1.2 (versionCode 3)`，最新 APK `app/android/app/build/outputs/apk/debug/app-debug.apk`（`128.72 MB`，`2026/11/21 13:29:30`），并已提交推送至 `origin/main`。
