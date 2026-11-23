@@ -14,7 +14,36 @@ declare global {
 
 const activeLayers: LayerEntry[] = [];
 let suppressPopCount = 0;
+let webHistoryDepth = 0;
+let historySyncScheduled = false;
 let listenerInstalled = false;
+
+/**
+ * 合并同一渲染帧内的多层入栈/出栈变化后再同步浏览器历史栈，
+ * 避免同帧内 history.back() 与 pushState() 竞态导致刚打开的子页被异步 popstate 闪退。
+ */
+function syncWebHistory() {
+  historySyncScheduled = false;
+  if (typeof window === 'undefined' || Capacitor.isNativePlatform()) return;
+
+  const diff = activeLayers.length - webHistoryDepth;
+  if (diff > 0) {
+    for (let i = 0; i < diff; i++) {
+      window.history.pushState({ fgoModalDepth: webHistoryDepth + i + 1 }, '');
+    }
+    webHistoryDepth = activeLayers.length;
+  } else if (diff < 0) {
+    suppressPopCount += 1;
+    webHistoryDepth = activeLayers.length;
+    window.history.go(diff);
+  }
+}
+
+function scheduleWebHistorySync() {
+  if (historySyncScheduled || typeof window === 'undefined' || Capacitor.isNativePlatform()) return;
+  historySyncScheduled = true;
+  queueMicrotask(syncWebHistory);
+}
 
 /**
  * 供 Android 原生 MainActivity.java 在拦截系统返回键 / 边缘侧滑手势时直接调用：
@@ -46,6 +75,7 @@ function ensureGlobalListeners() {
         suppressPopCount--;
         return;
       }
+      webHistoryDepth = Math.max(0, webHistoryDepth - 1);
       const top = activeLayers.pop();
       if (top) {
         top.close();
@@ -56,11 +86,10 @@ function ensureGlobalListeners() {
   window.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && activeLayers.length > 0) {
       e.preventDefault();
-      if (isNative) {
-        const top = activeLayers.pop();
-        if (top) top.close();
-      } else {
-        window.history.back();
+      const top = activeLayers.pop();
+      if (top) top.close();
+      if (!isNative) {
+        scheduleWebHistorySync();
       }
     }
   });
@@ -72,7 +101,7 @@ installAndroidBackBridge();
 /**
  * 将当前打开的子页面/弹窗/抽屉/大图查看器注册到返回栈：
  * - Android 原生端：由 MainActivity.java 直接调用 window.__fgoHandleAndroidBack() 逐层关闭，避免 WebView canGoBack() 失效
- * - Web 浏览器端：联动 history.pushState / popstate 与 Esc 键逐层关闭
+ * - Web 浏览器端：通过微任务合并 history 变更并联动 popstate 与 Esc 键逐层关闭
  */
 export function useBackClose(isOpen: boolean, onClose: () => void): void {
   const onCloseRef = useRef(onClose);
@@ -91,17 +120,16 @@ export function useBackClose(isOpen: boolean, onClose: () => void): void {
 
     activeLayers.push(entry);
     if (!isNative) {
-      window.history.pushState({ fgoModalLayer: id }, '');
+      scheduleWebHistorySync();
     }
 
     return () => {
       const idx = activeLayers.findIndex((item) => item.id === id);
       if (idx !== -1) {
-        // 由 UI 按钮主动关闭（而非返回手势关闭），从栈中移除；Web 端同步静默回退 history
+        // 由 UI 按钮主动关闭（而非返回手势关闭），从栈中移除；Web 端合并同步 history
         activeLayers.splice(idx, 1);
         if (!isNative) {
-          suppressPopCount++;
-          window.history.back();
+          scheduleWebHistorySync();
         }
       }
     };

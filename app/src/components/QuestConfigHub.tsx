@@ -370,8 +370,8 @@ export const QuestConfigHub: React.FC<QuestConfigHubProps> = ({
   }, [onScrollTop]);
 
   // 每一层下钻均注册至系统返回栈，按安卓返回键 / 边缘侧滑手势逐级返回上一级
-  useBackClose(Boolean(activeCat && !activeStoryPartId && questPageStack.length === 0), handleBackFromCategory);
-  useBackClose(Boolean(activeStoryPartId && questPageStack.length === 0), handleBackFromStoryPart);
+  useBackClose(Boolean(activeCat), handleBackFromCategory);
+  useBackClose(Boolean(activeStoryPartId), handleBackFromStoryPart);
   useBackClose(questPageStack.length > 0, handleBackFromQuestPage);
 
   useEffect(() => {

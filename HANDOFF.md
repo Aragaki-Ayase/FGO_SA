@@ -327,3 +327,18 @@
   - `node --check` 校验 4 个文件全部通过（退出码 `0`）；`npm.cmd --prefix app run build` 构建成功（`✓ built in 20.74s`）。
   - **未验证**：EdgeOne Pages 控制台绑定仓库后的线上部署与大陆网络实测待推送 GitHub 后验证。
 - **下一步**：提交推送 `app/edge-functions/` 与 `HANDOFF.md` 至 `origin/main`，在 EdgeOne Pages 控制台关联 `Aragaki-Ayase/FGO_SA`（Root Directory 填 `app`，Build Command 填 `npm run build`，Output Directory 填 `dist`）。
+
+
+---
+
+## 27. 修复 Web 端（手机 Chrome/Edge）剧情及关卡配置子页闪退 Bug（2026-11-23）
+
+- **根因**：[StoryHub.tsx](file:///d:/git_proj/FGO_SA/app/src/components/StoryHub.tsx) 与 [QuestConfigHub.tsx](file:///d:/git_proj/FGO_SA/app/src/components/QuestConfigHub.tsx) 原使用互斥条件注册 `useBackClose`，且 [backNavigation.ts](file:///d:/git_proj/FGO_SA/app/src/utils/backNavigation.ts) 在 Web 端 `useEffect` 清理/挂载阶段直接同步触发 `window.history.back()` 与 `window.history.pushState()`。在移动端 Chromium（Chrome/Edge）下同帧触发会导致异步 `popstate` 错位弹出刚入栈的阅读器层，表现为「闪一下退出」。
+- **改动**：
+  - [backNavigation.ts](file:///d:/git_proj/FGO_SA/app/src/utils/backNavigation.ts)：引入 `webHistoryDepth` 与 `queueMicrotask(syncWebHistory)` 合并同一渲染帧的入栈/出栈差值，消除同帧 `history.back()` 与 `pushState()` 竞态，同时统一 `Escape` 键与 Android 原生返回栈逻辑。
+  - [StoryHub.tsx](file:///d:/git_proj/FGO_SA/app/src/components/StoryHub.tsx) & [QuestConfigHub.tsx](file:///d:/git_proj/FGO_SA/app/src/components/QuestConfigHub.tsx)：将 `selectedCat`、`selectedWar`、`activeCat`、`activeStoryPartId` 的 `useBackClose` 改为纯嵌套栈条件，进入子页面时不再反复卸载父级返回层。
+- **验证结果**：
+  - `tsc.cmd -p app/tsconfig.json --noEmit` **0 错误通过**。
+  - `npm.cmd --prefix app run build` 构建成功（`✓ built in 25.42s`，1,589 个模块）。
+  - **未验证**：尚未提交推送至 GitHub，移动端 Chrome / Edge 线上实测待推送部署后验证。
+- **下一步**：确认推送至 `origin/main`，等待 Cloudflare Pages / EdgeOne Pages 自动重新部署后在手机浏览器验证剧情阅读器打开与返回键行为。

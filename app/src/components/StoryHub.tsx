@@ -686,8 +686,8 @@ export const StoryHub: React.FC<StoryHubProps> = ({
     onScrollTop();
   }, [onScrollTop]);
 
-  useBackClose(Boolean(selectedCat && !selectedWar), closeCategory);
-  useBackClose(Boolean(selectedWar && !readerState && !resumePrompt), closeWarDetail);
+  useBackClose(Boolean(selectedCat), closeCategory);
+  useBackClose(Boolean(selectedWar), closeWarDetail);
   useBackClose(Boolean(resumePrompt), () => setResumePrompt(null));
   useBackClose(confirmClearImgCache, () => setConfirmClearImgCache(false));
 
