@@ -310,3 +310,20 @@
   - 产出瘦身版 [app-debug.apk](file:///d:/git_proj/FGO_SA/app/android/app/build/outputs/apk/debug/app-debug.apk)：**`71.96 MB`**（原 `142 MB`），`LastWriteTime: 2026/11/23 10:22:46`，`SHA256: 3098CDD8F437E5BD3B0D68B7C8136631301570580EDA626DA805EA052AE196A7`；压缩包校验 `entries: 5452`、`ce_cards: 0`、`baiduyun: 0`、`has_servant_stories: True`、`has_pwa_manifest: True`。
   - **未验证**：Cloudflare Pages 线上部署与多电脑端实测需待提交推送后在 Cloudflare 控制台关联仓库验证。
 - **下一步**：如确认提交推送本次 `app/functions/` 与 PWA 配置至 GitHub `main`，即可在 Cloudflare Pages 绑定仓库 `Aragaki-Ayase/FGO_SA`（Root directory 填 `app`，Build command 填 `npm run build`，Build output directory 填 `dist`）完成上线。
+
+
+---
+
+## 26. 新增腾讯云 EdgeOne Pages 边缘反代函数（2026-11-23）
+
+- **目标与状态**：
+  - 为便于中国大陆网络直连访问，在保留 `app/functions/`（Cloudflare Pages）的同时，新增 `app/edge-functions/` 目录适配腾讯云 EdgeOne Pages 边缘函数规范；**未提交或推送 Git**。
+- **关键改动**：
+  - [app/edge-functions/mooncell-api.js](file:///d:/git_proj/FGO_SA/app/edge-functions/mooncell-api.js)：代理 `/mooncell-api` 至 `https://fgo.wiki/api.php`。
+  - [app/edge-functions/mooncell-media/[[default]].js](file:///d:/git_proj/FGO_SA/app/edge-functions/mooncell-media/[[default]].js)：代理 `/mooncell-media/*` 至 `https://media.fgo.wiki/*`（透传 `Range` 头）。
+  - [app/edge-functions/atlas-api/[[default]].js](file:///d:/git_proj/FGO_SA/app/edge-functions/atlas-api/[[default]].js)：代理 `/atlas-api/*` 至 `https://api.atlasacademy.io/*`。
+  - [app/edge-functions/atlas-static/[[default]].js](file:///d:/git_proj/FGO_SA/app/edge-functions/atlas-static/[[default]].js)：代理 `/atlas-static/*` 至 `https://static.atlasacademy.io/*`（透传 `Range` 头）。
+- **验证结果**：
+  - `node --check` 校验 4 个文件全部通过（退出码 `0`）；`npm.cmd --prefix app run build` 构建成功（`✓ built in 20.74s`）。
+  - **未验证**：EdgeOne Pages 控制台绑定仓库后的线上部署与大陆网络实测待推送 GitHub 后验证。
+- **下一步**：提交推送 `app/edge-functions/` 与 `HANDOFF.md` 至 `origin/main`，在 EdgeOne Pages 控制台关联 `Aragaki-Ayase/FGO_SA`（Root Directory 填 `app`，Build Command 填 `npm run build`，Output Directory 填 `dist`）。
