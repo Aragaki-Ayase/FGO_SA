@@ -291,3 +291,22 @@
   - [build_app_data.py](file:///e:/work/FGO_SA/build_app_data.py)：修正两处 `CE_EFFECT_TAG_RULES` 中三项正则，覆盖中文（`增加/提升`、`牵绊值/牵绊点数`、`御主/魔术礼装经验`、`QP量/获得量`）与日文表述。
   - 原地重算 `app/public/data/catalog_summary.json` 及全部 14 个 `ces/ce_*.json` 分片的 `effectTags`（共修复 433 张礼装：牵绊点数加成 `0 → 59` 张、御主/魔术礼装 EXP 加成 `0 → 393` 张、QP 获得量加成 `8 → 41` 张），并同步更新 `cloud_manifest.json` 哈希与 [dataService.ts](file:///e:/work/FGO_SA/app/src/services/dataService.ts) `DATA_VERSION`。
 - **验证状态**：`python -m py_compile build_app_data.py` 与 `npm.cmd --prefix app run build`（`vite build`）均通过；尚未提交推送 Git 或重打 APK（推送至 GitHub 后手机现有 App 点击「更新数据」即可直接热更新生效）。
+
+
+---
+
+## 25. 本地礼装卡面清理瘦身打包与 Cloudflare Pages + PWA 部署适配（2026-11-23）
+
+- **目标与状态**：
+  - 清理本地未受 Git 追踪的 `app/public/assets/cards/ce`（`2,707` 个文件，占 `69.32 MB`），使本地 `v1.3` APK 体积与 GitHub Actions 保持一致瘦身。
+  - 按「方案 1」为跨电脑在线使用与桌面 PWA 安装补齐 Cloudflare Pages Functions 反代与 Web Manifest 配置；**未提交或推送 Git**。
+- **关键改动**：
+  - 清理 `app/public/assets/cards/ce/`（按需拉取 + IndexedDB 本地缓存由第 22 项前端代码承担）。
+  - [manifest.webmanifest](file:///d:/git_proj/FGO_SA/app/public/manifest.webmanifest)、[pwa-icon.png](file:///d:/git_proj/FGO_SA/app/public/pwa-icon.png)、[index.html](file:///d:/git_proj/FGO_SA/app/index.html)：补充 PWA 清单与图标引用，支持 Edge / Chrome 一键安装为独立桌面窗口应用。
+  - [app/functions/_proxy.js](file:///d:/git_proj/FGO_SA/app/functions/_proxy.js)、[mooncell-api.js](file:///d:/git_proj/FGO_SA/app/functions/mooncell-api.js)、[mooncell-media/[[path]].js](file:///d:/git_proj/FGO_SA/app/functions/mooncell-media/[[path]].js)、[atlas-api/[[path]].js](file:///d:/git_proj/FGO_SA/app/functions/atlas-api/[[path]].js)、[atlas-static/[[path]].js](file:///d:/git_proj/FGO_SA/app/functions/atlas-static/[[path]].js)：将 `vite.config.ts` 的 4 条跨域代理路由迁移为 Cloudflare Pages Functions（支持 `Range` 音频请求头与缓存头）。
+- **验证结果**：
+  - `node --check` 校验 5 个 Cloudflare Functions 文件均通过（退出码 `0`）；`tsc.cmd -p app/tsconfig.json --noEmit` 0 错误通过。
+  - `npm.cmd --prefix app run android:sync`（`vite build` `22.92s` + `cap sync` `26.689s`）与 `:app:clean assembleDebug --no-daemon`（临时编译目录绕过百度网盘同步锁文件，`BUILD SUCCESSFUL in 4m 24s`）成功。
+  - 产出瘦身版 [app-debug.apk](file:///d:/git_proj/FGO_SA/app/android/app/build/outputs/apk/debug/app-debug.apk)：**`71.96 MB`**（原 `142 MB`），`LastWriteTime: 2026/11/23 10:22:46`，`SHA256: 3098CDD8F437E5BD3B0D68B7C8136631301570580EDA626DA805EA052AE196A7`；压缩包校验 `entries: 5452`、`ce_cards: 0`、`baiduyun: 0`、`has_servant_stories: True`、`has_pwa_manifest: True`。
+  - **未验证**：Cloudflare Pages 线上部署与多电脑端实测需待提交推送后在 Cloudflare 控制台关联仓库验证。
+- **下一步**：如确认提交推送本次 `app/functions/` 与 PWA 配置至 GitHub `main`，即可在 Cloudflare Pages 绑定仓库 `Aragaki-Ayase/FGO_SA`（Root directory 填 `app`，Build command 填 `npm run build`，Build output directory 填 `dist`）完成上线。
